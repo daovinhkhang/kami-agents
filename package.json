@@ -1,0 +1,43 @@
+{
+  "name": "kami-app",
+  "version": "0.1.0",
+  "description": "KAMI — AI agent harness embedded in Medusa (DeepSeek-powered)",
+  "private": true,
+  "scripts": {
+    "dev": "medusa develop --lint false",
+    "build": "medusa build",
+    "start": "medusa start",
+    "db:migrate": "medusa db:migrate",
+    "typecheck": "tsc --noEmit",
+    "test:kami-unit": "tsx --test src/kami-runtime/__tests__/approval-gate-v2.test.ts src/kami-runtime/__tests__/artifact-builder.test.ts src/kami-runtime/__tests__/stream-manager.test.ts",
+    "test:deepseek": "node --env-file=.env scripts/test-deepseek.mjs",
+    "test:kami-smoke": "KAMI_TEST_MOCK_LLM=true medusa exec ./src/scripts/kami-smoke.ts",
+    "test:kami-e2e": "medusa exec ./src/scripts/kami-e2e-deepseek.ts",
+    "test:kami-eval": "medusa exec ./src/scripts/kami-eval.ts"
+  },
+  "dependencies": {
+    "@medusajs/admin-sdk": "^2.17.1",
+    "@medusajs/core-flows": "2.17.1",
+    "@medusajs/framework": "2.17.1",
+    "@medusajs/icons": "2.17.1",
+    "@medusajs/medusa": "2.17.1",
+    "@medusajs/ui": "4.1.18",
+    "@mikro-orm/core": "6.6.14",
+    "@mikro-orm/postgresql": "6.6.14",
+    "ajv": "^8.20.0",
+    "openai": "^4.77.0",
+    "pg": "^8.13.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.4",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
