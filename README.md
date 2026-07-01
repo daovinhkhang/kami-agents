@@ -1,6 +1,10 @@
 # KAMI — Knowledgeable Agent for Medusa Intelligence
 
 <p align="center">
+  <img src="./public/kami-icon.png" alt="KAMI" width="128" height="128">
+</p>
+
+<p align="center">
   <strong>AI Agent Harness Embedded in Medusa</strong><br>
   An autonomous commerce agent that queries, analyzes, drafts, and acts on your store — directly inside the Medusa admin dashboard.
 </p>

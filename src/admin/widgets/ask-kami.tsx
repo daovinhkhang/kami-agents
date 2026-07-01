@@ -1,8 +1,9 @@
 "use client"
 
 import { defineWidgetConfig } from "@medusajs/admin-sdk"
-import { AiAssistent } from "@medusajs/icons"
 import { Button, Container, Heading, Text } from "@medusajs/ui"
+
+const KAMI_ICON_SRC = "/kami-icon.png"
 
 const AskKamiWidget = (props: any) => {
   const recordId = props?.data?.id ?? props?.id
@@ -17,14 +18,21 @@ const AskKamiWidget = (props: any) => {
 
   return (
     <Container className="flex items-center justify-between gap-x-3 p-4">
-      <div>
-        <Heading level="h2">KAMI</Heading>
-        <Text size="small" className="text-ui-fg-subtle">
-          {recordId ?? "Current record"}
-        </Text>
+      <div className="flex min-w-0 items-center gap-x-3">
+        <img
+          src={KAMI_ICON_SRC}
+          alt="KAMI"
+          className="size-9 shrink-0 rounded-lg object-cover"
+          loading="lazy"
+        />
+        <div className="min-w-0">
+          <Heading level="h2">KAMI</Heading>
+          <Text size="small" className="truncate text-ui-fg-subtle">
+            {recordId ?? "Current record"}
+          </Text>
+        </div>
       </div>
       <Button size="small" variant="secondary" onClick={openKami}>
-        <AiAssistent />
         Ask
       </Button>
     </Container>
@@ -40,4 +48,3 @@ export const config = defineWidgetConfig({
 })
 
 export default AskKamiWidget
-
