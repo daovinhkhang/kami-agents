@@ -1,6 +1,22 @@
-import { objectSchema, pagination, graph, graphById, stringArg, typedPayload } from "./shared"
+import { objectSchema, pagination, graph, graphById, stringArg, typedPayload, isObj, isNonEmptyStr, missingField } from "./shared"
 import { registerTool } from "../registry"
+import type { ArgValidationResult } from "../registry"
 import type { KamiCtx } from "../../types"
+
+const validateCreateSalesChannel = (
+  args: Record<string, unknown>
+): ArgValidationResult | null => {
+  const channel = args.sales_channel
+  if (!isObj(channel) || !isNonEmptyStr(channel.name)) {
+    return missingField(
+      "create_sales_channel",
+      ["sales_channel.name"],
+      "create_sales_channel requires a sales_channel object with a non-empty name.",
+      "Provide sales_channel.name (e.g. 'Webshop')."
+    )
+  }
+  return null
+}
 
 export const registerSalesChannelTools = () => {
   registerTool({
@@ -33,6 +49,7 @@ export const registerSalesChannelTools = () => {
       { sales_channel: { type: "object" } },
       ["sales_channel"]
     ),
+    validate: validateCreateSalesChannel,
     handler: async (args, ctx: KamiCtx) => {
       const { createSalesChannelsWorkflow } = await import("@medusajs/core-flows")
       return await ctx.executor.runWorkflow(createSalesChannelsWorkflow, {

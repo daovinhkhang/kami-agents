@@ -46,7 +46,7 @@ export const consolidateFromSession = async (
   }
 
   try {
-    const messages = await (kami as any).listKamiMessages(
+    const messages = await kami.listKamiMessages(
       { session_id: sessionId },
       { take: 50, order: { created_at: "ASC" } }
     )
@@ -105,12 +105,12 @@ export const consolidateFromSession = async (
         continue
       }
 
-      const existing = await (kami as any).listKamiSkills({
+      const existing = await kami.listKamiSkills({
         name: skill.name,
       })
 
       if (existing[0]) {
-        await (kami as any).updateKamiSkills({
+        await kami.updateKamiSkills({
           id: existing[0].id,
           description:
             skill.description ?? existing[0].description,
@@ -125,11 +125,11 @@ export const consolidateFromSession = async (
             consolidated_at: new Date().toISOString(),
             consolidated_from: sessionId,
             quality_score:
-              (existing[0].metadata?.quality_score ?? 0.5) + 0.1,
+              (Number(existing[0].metadata?.quality_score ?? 0.5)) + 0.1,
           },
         })
       } else {
-        await (kami as any).createKamiSkills([
+        await kami.createKamiSkills([
           {
             name: skill.name,
             description: skill.description ?? null,
@@ -151,7 +151,7 @@ export const consolidateFromSession = async (
               quality_score: 0.5,
             },
           },
-        ])
+        ] as unknown as Parameters<typeof kami.createKamiSkills>[0])
       }
     }
   } catch {
@@ -186,7 +186,7 @@ export const pruneSkills = async (
     return { pruned: [], kept: 0 }
   }
 
-  const allSkills = await (kami as any).listKamiSkills(
+  const allSkills = await kami.listKamiSkills(
     { origin: "agent", disabled: false },
     { take: 100, order: { name: "ASC" } }
   )
@@ -242,7 +242,7 @@ export const pruneSkills = async (
       )
 
       if (match) {
-        await (kami as any).updateKamiSkills({
+        await kami.updateKamiSkills({
           id: match.id,
           disabled: true,
           metadata: {
@@ -273,7 +273,7 @@ export const scoreSkills = async (
     return 0
   }
 
-  const skills = await (kami as any).listKamiSkills(
+  const skills = await kami.listKamiSkills(
     { origin: "agent", disabled: false },
     { take: 20, order: { name: "ASC" } }
   )
@@ -314,7 +314,7 @@ export const scoreSkills = async (
       const score = parseFloat(completion.text.trim())
 
       if (Number.isFinite(score) && score >= 0 && score <= 1) {
-        await (kami as any).updateKamiSkills({
+        await kami.updateKamiSkills({
           id: skill.id,
           metadata: {
             ...(skill.metadata ?? {}),

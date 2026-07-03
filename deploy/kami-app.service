@@ -1,0 +1,21 @@
+[Unit]
+Description=KAMI Medusa production app
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/kami-app/current
+Environment=NODE_ENV=production
+Environment=PORT=9000
+Environment=PATH=/opt/node-v20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStartPre=/bin/bash -lc 'for i in {1..60}; do (echo > /dev/tcp/127.0.0.1/5433) >/dev/null 2>&1 && (echo > /dev/tcp/127.0.0.1/6380) >/dev/null 2>&1 && exit 0; sleep 2; done; exit 1'
+ExecStart=/opt/node-v20/bin/npm run start
+Restart=always
+RestartSec=5
+TimeoutStartSec=120
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

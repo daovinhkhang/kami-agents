@@ -1,6 +1,31 @@
-import { objectSchema, pagination, graph, graphById, stringArg, typedPayload } from "./shared"
+import { objectSchema, pagination, graph, graphById, stringArg, typedPayload, isObj, isNonEmptyStr, missingField } from "./shared"
 import { registerTool } from "../registry"
+import type { ArgValidationResult } from "../registry"
 import type { KamiCtx } from "../../types"
+
+const validateCreateRegion = (
+  args: Record<string, unknown>
+): ArgValidationResult | null => {
+  const region = args.region
+  if (!isObj(region)) {
+    return missingField(
+      "create_region",
+      ["region"],
+      "create_region requires a region object.",
+      "Provide a region object with name and currency_code."
+    )
+  }
+  const fields: string[] = []
+  if (!isNonEmptyStr(region.name)) fields.push("region.name")
+  if (!isNonEmptyStr(region.currency_code)) fields.push("region.currency_code")
+  if (!fields.length) return null
+  return missingField(
+    "create_region",
+    fields,
+    "create_region requires both a name and a currency_code.",
+    "Set region.name and region.currency_code (e.g. 'usd', 'vnd')."
+  )
+}
 
 export const registerRegionTools = () => {
   registerTool({
@@ -33,6 +58,7 @@ export const registerRegionTools = () => {
       { region: { type: "object" } },
       ["region"]
     ),
+    validate: validateCreateRegion,
     handler: async (args, ctx: KamiCtx) => {
       const { createRegionsWorkflow } = await import("@medusajs/core-flows")
       return await ctx.executor.runWorkflow(createRegionsWorkflow, {

@@ -21,38 +21,63 @@ const MAX_OUTPUT_BYTES = 10_000
 // ── Command allowlist / blocklist ──
 
 const BLOCKED_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
-  { pattern: /\brm\s+(-[rRf]+\s+)*[~/]/, reason: "rm with recursive/force on system paths" },
-  { pattern: /\brm\s+-rf\b/, reason: "rm -rf (always blocked)" },
-  { pattern: /\bchmod\s+777\b/, reason: "chmod 777" },
+  { pattern: /\brm\s+(-[a-zA-Z]*\s+)*[~/]/, reason: "rm with flags on system paths" },
+  { pattern: /\brm\s+-[a-zA-Z]*[rf]/, reason: "rm recursive/force (always blocked)" },
   { pattern: /\bchmod\s+[0-7]*7[0-7]*7\b/, reason: "world-writable chmod" },
   { pattern: /\bchown\s+root\b/, reason: "chown to root" },
   { pattern: />\s*\/etc\//, reason: "redirect to /etc/" },
-  { pattern: /\bcurl\b.*\b169\.254/, reason: "curl to cloud metadata" },
-  { pattern: /\bwget\b.*\b169\.254/, reason: "wget to cloud metadata" },
-  { pattern: /\bcurl\b.*\b(?:10\.|172\.(?:1[6-9]|2\d|3[01])\.|192\.168\.)/, reason: "curl to internal IP" },
+  { pattern: /\b(curl|wget)\b[\s\S]*\b169\.254/, reason: "http fetch to cloud metadata" },
+  { pattern: /\b(curl|wget)\b[\s\S]*\b(?:10\.|172\.(?:1[6-9]|2\d|3[01])\.|192\.168\.)/, reason: "http fetch to internal IP" },
   { pattern: /\bshutdown\b/, reason: "shutdown" },
   { pattern: /\breboot\b/, reason: "reboot" },
-  { pattern: /\bkill\s+-9\b/, reason: "kill -9" },
-  { pattern: /\b:(){ :|:& };:\b/, reason: "fork bomb" },
-  { pattern: /\bdocker\s+(rm|stop|kill)\b/, reason: "docker container manipulation" },
-  { pattern: /\biptables\b/, reason: "iptables modification" },
+  { pattern: /\bhalt\b|\bpoweroff\b/, reason: "system halt" },
+  { pattern: /\bkill(all)?\s+-(9|SIGKILL)\b/, reason: "kill -9" },
+  { pattern: /:\s*\(\s*\)\s*\{.*\}\s*;\s*:/, reason: "fork bomb" },
+  { pattern: /\bdocker\s+(rm|stop|kill|rmi|prune)\b/, reason: "docker container manipulation" },
+  { pattern: /\biptables\b|\bnft\b/, reason: "firewall modification" },
   { pattern: /\bufw\b/, reason: "firewall modification" },
   { pattern: /\bpasswd\b/, reason: "password modification" },
-  { pattern: /\buseradd\b|\buserdel\b/, reason: "user account manipulation" },
+  { pattern: /\buseradd\b|\buserdel\b|\busermod\b|\bgroupadd\b/, reason: "user account manipulation" },
+  { pattern: /\b(sudo|su|doas)\b/, reason: "privilege escalation" },
   { pattern: /\bdd\s+if=/, reason: "dd (disk write)" },
   { pattern: /\bmkfs\./, reason: "mkfs (create filesystem)" },
-  { pattern: /\bmount\b/, reason: "mount" },
-  { pattern: /\bumount\b/, reason: "unmount" },
+  { pattern: /\b(mount|umount)\b/, reason: "(un)mount" },
   { pattern: />\s*\/dev\//, reason: "redirect to device" },
+  { pattern: /\beval\b|\bexec\b/, reason: "eval/exec (obfuscated execution)" },
+  { pattern: /\bbase64\b\s+(-d|--decode)/, reason: "base64 decode (obfuscated payload)" },
+  { pattern: /\bnc\b|\bncat\b|\bnetcat\b/, reason: "netcat (reverse shell risk)" },
+  { pattern: /\/dev\/(tcp|udp)\//, reason: "bash network redirect (reverse shell)" },
 ]
+
+/**
+ * Normalize a command before pattern-matching so common shell-obfuscation
+ * tricks cannot slip a blocked verb past the regex. execSync runs through a
+ * shell, so `rm${IFS}-rf`, `r\m -rf`, and `"rm" -rf` all execute the same rm —
+ * collapse those forms to a canonical string that the patterns can see.
+ */
+function normalizeCommand(command: string): string {
+  return command
+    // $IFS / ${IFS} used as a whitespace substitute
+    .replace(/\$\{?IFS\}?/g, " ")
+    // backslash-escaped chars: r\m -> rm, \/ -> /
+    .replace(/\\(.)/g, "$1")
+    // drop quote characters that split a token without changing what runs
+    .replace(/['"]/g, "")
+    // collapse all whitespace (including newlines/tabs) to single spaces
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+}
 
 function validateCommand(command: string): { allowed: boolean; reason?: string } {
   if (!command || !command.trim()) {
     return { allowed: false, reason: "Empty command." }
   }
 
+  // Match against both the raw command and a normalized form so obfuscation
+  // (variable whitespace, escapes, quotes) cannot bypass the blocklist.
+  const normalized = normalizeCommand(command)
   for (const { pattern, reason } of BLOCKED_PATTERNS) {
-    if (pattern.test(command)) {
+    if (pattern.test(command) || pattern.test(normalized)) {
       return { allowed: false, reason: `Blocked: ${reason}` }
     }
   }

@@ -28,7 +28,7 @@ export const createEmbeddingMemoryProvider = (
         // Store without embedding — search will use text fallback.
       }
 
-      const [memory] = await (ctx.kami as any).createKamiMemories([
+      const [memory] = await ctx.kami.createKamiMemories([
         {
           content: input.content,
           type: input.type ?? "factual",
@@ -43,7 +43,7 @@ export const createEmbeddingMemoryProvider = (
     },
 
     async search(input: MemorySearchInput) {
-      const memories = await (ctx.kami as any).listKamiMemories(
+      const memories = await ctx.kami.listKamiMemories(
         {},
         { take: 500, order: { created_at: "DESC" } }
       )
@@ -85,7 +85,7 @@ export const createEmbeddingMemoryProvider = (
     },
 
     async recall(limit = 10) {
-      return await (ctx.kami as any).listKamiMemories(
+      return await ctx.kami.listKamiMemories(
         {},
         {
           take: Number(limit),

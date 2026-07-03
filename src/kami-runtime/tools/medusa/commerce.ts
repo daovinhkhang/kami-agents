@@ -195,6 +195,45 @@ const validateCreatePromotion = (
   )
 }
 
+const validateCreatePriceList = (
+  args: Record<string, unknown>
+): ArgValidationResult | null => {
+  const priceList = args.price_list
+  if (!isObj(priceList) || !isNonEmptyStr(priceList.title)) {
+    return missingField(
+      "create_price_list",
+      ["price_list.title"],
+      "create_price_list requires a price_list object with a non-empty title.",
+      "Provide price_list.title (e.g. 'Black Friday')."
+    )
+  }
+  return null
+}
+
+const validateCreateCampaign = (
+  args: Record<string, unknown>
+): ArgValidationResult | null => {
+  const campaign = args.campaign
+  if (!isObj(campaign)) {
+    return missingField(
+      "create_campaign",
+      ["campaign"],
+      "create_campaign requires a `campaign` object.",
+      "Provide a campaign object with name and campaign_identifier."
+    )
+  }
+  const fields: string[] = []
+  if (!isNonEmptyStr(campaign.name)) fields.push("campaign.name")
+  if (!isNonEmptyStr(campaign.campaign_identifier)) fields.push("campaign.campaign_identifier")
+  if (!fields.length) return null
+  return missingField(
+    "create_campaign",
+    fields,
+    "create_campaign requires a name and a campaign_identifier.",
+    "Set campaign.name and campaign.campaign_identifier (a unique code)."
+  )
+}
+
 export const registerCommerceTools = () => {
   // ======================== Products ========================
 
@@ -470,6 +509,7 @@ export const registerCommerceTools = () => {
       { price_list: { type: "object" } },
       ["price_list"]
     ),
+    validate: validateCreatePriceList,
     handler: async (args, ctx: KamiCtx) => {
       const { createPriceListsWorkflow } = await import("@medusajs/core-flows")
       return await ctx.executor.runWorkflow(createPriceListsWorkflow, {
@@ -602,6 +642,7 @@ export const registerCommerceTools = () => {
       { campaign: { type: "object" } },
       ["campaign"]
     ),
+    validate: validateCreateCampaign,
     handler: async (args, ctx: KamiCtx) => {
       const { createCampaignsWorkflow } = await import("@medusajs/core-flows")
       return await ctx.executor.runWorkflow(createCampaignsWorkflow, {

@@ -1,4 +1,5 @@
 import type { ScheduledJobHandler } from "@medusajs/framework/jobs"
+import type KamiModuleService from "../modules/kami/services/kami-module-service"
 import { pruneSkills, scoreSkills } from "../kami-runtime/skills/improve"
 import { getKamiConfig } from "../kami-runtime/config"
 
@@ -21,13 +22,13 @@ const handler: ScheduledJobHandler = async (container) => {
     return { skipped: true, reason: config.halt ? "halted" : "mock_llm" }
   }
 
-  const kami = container.resolve("kami") as any
+  const kami = container.resolve("kami") as KamiModuleService
   const now = new Date()
 
   const pruned = await pruneSkills(kami)
   const scored = await scoreSkills(kami)
 
-  await (kami as any).createKamiAuditLogs([
+  await kami.createKamiAuditLogs([
     {
       session_id: null,
       tool: "kami-background-review",

@@ -1,7 +1,7 @@
 import type { KamiCtx, KamiToolCall } from "../types"
 
 export const requestApproval = async (ctx: KamiCtx, call: KamiToolCall) => {
-  const [approval] = await (ctx.kami as any).createKamiApprovals([
+  const [approval] = await ctx.kami.createKamiApprovals([
     {
       session_id: ctx.sessionId,
       tool: call.name,

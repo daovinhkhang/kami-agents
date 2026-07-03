@@ -7,7 +7,7 @@ const includes = (value: unknown, query: string) => {
 
 export const createPostgresMemoryProvider = (ctx: KamiCtx): MemoryProvider => ({
   async add(input: MemoryAddInput) {
-    const [memory] = await (ctx.kami as any).createKamiMemories([
+    const [memory] = await ctx.kami.createKamiMemories([
       {
         content: input.content,
         type: input.type ?? "factual",
@@ -21,7 +21,7 @@ export const createPostgresMemoryProvider = (ctx: KamiCtx): MemoryProvider => ({
   },
 
   async search(input: MemorySearchInput) {
-    const memories = await (ctx.kami as any).listKamiMemories(
+    const memories = await ctx.kami.listKamiMemories(
       {},
       { take: 200, order: { created_at: "DESC" } }
     )
@@ -33,7 +33,7 @@ export const createPostgresMemoryProvider = (ctx: KamiCtx): MemoryProvider => ({
   },
 
   async recall(limit = 10) {
-    return await (ctx.kami as any).listKamiMemories(
+    return await ctx.kami.listKamiMemories(
       {},
       {
         take: Number(limit),

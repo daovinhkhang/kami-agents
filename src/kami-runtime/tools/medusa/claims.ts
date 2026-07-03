@@ -1,6 +1,34 @@
-import { objectSchema, pagination, graph, graphById, stringArg, typedPayload } from "./shared"
+import { objectSchema, pagination, graph, graphById, stringArg, typedPayload, isObj, isNonEmptyStr, missingField } from "./shared"
 import { registerTool } from "../registry"
+import type { ArgValidationResult } from "../registry"
 import type { KamiCtx } from "../../types"
+
+const CLAIM_TYPES = ["refund", "replace"]
+
+const validateCreateClaim = (
+  args: Record<string, unknown>
+): ArgValidationResult | null => {
+  const claim = args.claim
+  if (!isObj(claim)) {
+    return missingField(
+      "create_claim",
+      ["claim"],
+      "create_claim requires a claim object.",
+      "Provide a claim object with order_id and type."
+    )
+  }
+  const fields: string[] = []
+  if (!isNonEmptyStr(claim.order_id)) fields.push("claim.order_id")
+  if (!isNonEmptyStr(claim.type) || !CLAIM_TYPES.includes(claim.type as string))
+    fields.push("claim.type")
+  if (!fields.length) return null
+  return missingField(
+    "create_claim",
+    fields,
+    `create_claim requires order_id and a type of ${CLAIM_TYPES.join(" or ")}.`,
+    "Set claim.order_id and claim.type. List the order first if you do not know its id."
+  )
+}
 
 export const registerClaimTools = () => {
   registerTool({
@@ -33,6 +61,7 @@ export const registerClaimTools = () => {
       { claim: { type: "object" } },
       ["claim"]
     ),
+    validate: validateCreateClaim,
     handler: async (args, ctx: KamiCtx) => {
       const { beginClaimOrderWorkflow } = await import("@medusajs/core-flows")
       return await ctx.executor.runWorkflow(beginClaimOrderWorkflow, typedPayload(args, "claim"))

@@ -1,6 +1,37 @@
-import { objectSchema, pagination, graph, graphById, stringArg, typedPayload } from "./shared"
+import { objectSchema, pagination, graph, graphById, stringArg, typedPayload, isObj, isNonEmptyStr, missingField } from "./shared"
 import { registerTool } from "../registry"
+import type { ArgValidationResult } from "../registry"
 import type { KamiCtx } from "../../types"
+
+const validateCreateTaxRate = (
+  args: Record<string, unknown>
+): ArgValidationResult | null => {
+  const rate = args.tax_rate
+  if (!isObj(rate) || !isNonEmptyStr(rate.tax_region_id)) {
+    return missingField(
+      "create_tax_rate",
+      ["tax_rate.tax_region_id"],
+      "create_tax_rate requires a tax_rate object with a non-empty tax_region_id.",
+      "Provide tax_rate.tax_region_id. List tax regions first if you do not know its id."
+    )
+  }
+  return null
+}
+
+const validateCreateTaxRegion = (
+  args: Record<string, unknown>
+): ArgValidationResult | null => {
+  const region = args.tax_region
+  if (!isObj(region) || !isNonEmptyStr(region.country_code)) {
+    return missingField(
+      "create_tax_region",
+      ["tax_region.country_code"],
+      "create_tax_region requires a tax_region object with a non-empty country_code.",
+      "Provide tax_region.country_code (e.g. 'vn', 'us')."
+    )
+  }
+  return null
+}
 
 export const registerTaxTools = () => {
   // --- Tax Rates ---
@@ -35,6 +66,7 @@ export const registerTaxTools = () => {
       { tax_rate: { type: "object" } },
       ["tax_rate"]
     ),
+    validate: validateCreateTaxRate,
     handler: async (args, ctx: KamiCtx) => {
       const { createTaxRatesWorkflow } = await import("@medusajs/core-flows")
       return await ctx.executor.runWorkflow(createTaxRatesWorkflow, {
@@ -97,6 +129,7 @@ export const registerTaxTools = () => {
       { tax_region: { type: "object" } },
       ["tax_region"]
     ),
+    validate: validateCreateTaxRegion,
     handler: async (args, ctx: KamiCtx) => {
       const { createTaxRegionsWorkflow } = await import("@medusajs/core-flows")
       return await ctx.executor.runWorkflow(createTaxRegionsWorkflow, {

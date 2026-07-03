@@ -3,6 +3,7 @@ import {
   MedusaResponse,
 } from "@medusajs/framework/http"
 import { ensureVoiceRealtimeServer, issueRealtimeTicket } from "@kami/voice/realtime-server"
+import { resolveRealtimeWsUrl } from "../../utils"
 
 export const POST = async (
   req: AuthenticatedMedusaRequest,
@@ -14,7 +15,7 @@ export const POST = async (
 
     res.json({
       ...ticket,
-      ws_url: `ws://localhost:${server.port}/kami/asr/realtime`,
+      ws_url: resolveRealtimeWsUrl(req, server.port),
       sample_rate: server.sample_rate,
       provider: "openai",
       model: server.model,

@@ -24,6 +24,8 @@ const globalKey = "__kamiVoiceRealtimeState"
 const ticketTtlMs = 2 * 60 * 1000
 const commitIntervalMs = 1_200
 const tickets = new Map<string, RealtimeTicket>()
+const bindHost =
+  process.env.KAMI_REALTIME_WS_BIND_HOST?.trim() || "127.0.0.1"
 
 const state = ((globalThis as any)[globalKey] ?? {}) as RealtimeState
 ;(globalThis as any)[globalKey] = state
@@ -253,7 +255,7 @@ export const ensureVoiceRealtimeServer = () => {
     })
   })
 
-  server.listen(config.wsPort, "127.0.0.1")
+  server.listen(config.wsPort, bindHost)
 
   state.server = server
   state.wss = wss

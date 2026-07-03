@@ -4,9 +4,10 @@ import {
 } from "@medusajs/framework/http"
 import { getOpenAIVoiceConfig } from "@kami/voice/openai"
 import { ensureVoiceRealtimeServer } from "@kami/voice/realtime-server"
+import { resolveRealtimeWsUrl } from "../../utils"
 
 export const GET = async (
-  _req: AuthenticatedMedusaRequest,
+  req: AuthenticatedMedusaRequest,
   res: MedusaResponse
 ) => {
   const config = getOpenAIVoiceConfig()
@@ -21,7 +22,7 @@ export const GET = async (
       const server = ensureVoiceRealtimeServer()
       realtime = {
         enabled: true,
-        ws_url_base: `ws://localhost:${server.port}/kami/asr/realtime`,
+        ws_url_base: resolveRealtimeWsUrl(req, server.port),
         port: server.port,
         started_at: server.started_at,
         model: server.model,

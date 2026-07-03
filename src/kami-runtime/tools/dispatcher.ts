@@ -1,7 +1,7 @@
 import { getApprovalGate } from "../security/approval-gate-v2"
 import { evaluateAutonomy } from "../security/autonomy"
 import { withAudit } from "../security/audit"
-import type { KamiCtx, KamiToolCall } from "../types"
+import type { KamiCtx, KamiToolCall, KamiToolRisk } from "../types"
 import { getTool } from "./registry"
 import { validateToolArgs } from "./arg-validator"
 
@@ -13,10 +13,19 @@ export const stableArgsKey = (args: unknown): string => {
   return JSON.stringify(args ?? null)
 }
 
-const resolveEffectiveRisk = (
+/**
+ * The effective risk of a call. For most tools this is the statically
+ * registered `entry.risk`, but `call_api` is a generic dispatcher whose real
+ * risk depends on the HTTP method it was handed (GET reads, POST mutates,
+ * DELETE destroys). run-turn also imports this so the tool_start badge and the
+ * per-turn mutation limit reason about the SAME risk the approval gate does —
+ * otherwise a `call_api` DELETE would render as "read" and slip past the
+ * mutation counter.
+ */
+export const resolveEffectiveRisk = (
   entry: NonNullable<ReturnType<typeof getTool>>,
   args: Record<string, unknown>
-) => {
+): KamiToolRisk => {
   if (entry.name !== "call_api") {
     return entry.risk
   }

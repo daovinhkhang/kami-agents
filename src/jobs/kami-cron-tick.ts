@@ -1,6 +1,7 @@
 import type { ScheduledJobHandler } from "@medusajs/framework/jobs"
 import { runTurn } from "../kami-runtime"
 import { getKamiConfig } from "../kami-runtime/config"
+import type KamiModuleService from "../modules/kami/services/kami-module-service"
 
 const minute = 60 * 1000
 const hour = 60 * minute
@@ -242,7 +243,7 @@ const nextRunAt = (schedule: string, from: Date) => {
   return nextCronTime(schedule, from)
 }
 
-const consumeTurn = async (job: any, container: any, kami: any) => {
+const consumeTurn = async (job: any, container: any, kami: KamiModuleService) => {
   const events: any[] = []
   let resolvedSessionId: string | null = null
 
@@ -275,9 +276,9 @@ const handler: ScheduledJobHandler = async (container, context) => {
     return { skipped: true, reason: "halted_by_env" }
   }
 
-  const kami = container.resolve("kami")
+  const kami = container.resolve("kami") as KamiModuleService
   const now = context?.scheduledFor ?? new Date()
-  const jobs = await (kami as any).listKamiJobs(
+  const jobs = await kami.listKamiJobs(
     { enabled: true },
     { take: 50, order: { next_run_at: "ASC" } }
   )
@@ -320,9 +321,9 @@ const handler: ScheduledJobHandler = async (container, context) => {
       updatePayload.session_id = resolvedSessionId
     }
 
-    await (kami as any).updateKamiJobs(updatePayload)
+    await kami.updateKamiJobs(updatePayload)
 
-    await (kami as any).createKamiAuditLogs([
+    await kami.createKamiAuditLogs([
       {
         session_id: job.session_id ?? null,
         tool: "kami-cron-tick",

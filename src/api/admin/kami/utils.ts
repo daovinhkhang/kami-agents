@@ -15,3 +15,26 @@ export const listConfig = (req: MedusaRequest) => {
     order: { created_at: "DESC" },
   }
 }
+
+const firstHeader = (value?: string | string[]) => {
+  if (Array.isArray(value)) {
+    return value[0]
+  }
+
+  return value
+}
+
+export const resolveRealtimeWsUrl = (
+  req: MedusaRequest,
+  port: number,
+  path = "/kami/asr/realtime"
+) => {
+  const configuredHost = process.env.KAMI_PUBLIC_HOST?.trim()
+  const forwardedHost = firstHeader(req.headers["x-forwarded-host"])
+  const requestHost = firstHeader(req.headers.host)
+  const host = configuredHost || forwardedHost || requestHost || "localhost"
+  const hostname = host.split(",")[0].trim().replace(/:\d+$/, "")
+  const scheme = process.env.KAMI_REALTIME_WS_SCHEME?.trim() || "ws"
+
+  return `${scheme}://${hostname}:${port}${path}`
+}

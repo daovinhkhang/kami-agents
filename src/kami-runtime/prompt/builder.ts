@@ -39,7 +39,7 @@ const formatLocalTimeContext = (ctx: KamiCtx) => {
 export const buildSystemPrompt = async (ctx: KamiCtx) => {
   await ensureDefaultSkills(ctx.kami)
 
-  const skills = await (ctx.kami as any).listKamiSkills(
+  const skills = await ctx.kami.listKamiSkills(
     { disabled: false },
     { take: 20, order: { name: "ASC" } }
   )

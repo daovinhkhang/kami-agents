@@ -161,7 +161,14 @@ async function httpFallback(
     }
     const token = generateJwtToken(tokenPayload, { secret: jwtSecret, expiresIn: "5m" })
 
-    const url = new URL(`http://localhost:9000${apiPath}`)
+    // Loopback base is configurable: KAMI self-calls the same Medusa server it
+    // runs inside, but the host/port vary by deployment (Docker, custom PORT).
+    const baseUrl = (
+      process.env.KAMI_SELF_BASE_URL ||
+      process.env.MEDUSA_BACKEND_URL ||
+      `http://localhost:${process.env.PORT || 9000}`
+    ).replace(/\/$/, "")
+    const url = new URL(`${baseUrl}${apiPath}`)
     if (query) {
       for (const [key, value] of Object.entries(query)) {
         if (value !== undefined && value !== null) {
@@ -317,6 +324,10 @@ export const registerCallApiTools = () => {
       "In execute_code sandbox, only GET is allowed. " +
       "Use this when no dedicated KAMI tool exists for the endpoint you need. " +
       "Prefer dedicated tools (list_products, create_product, etc.) for common operations — they have better validation.",
+    // Static fallback only. The real risk is computed per-call by
+    // resolveEffectiveRisk in the dispatcher (GET=read, POST=mutating,
+    // DELETE=destructive) — that is what the approval gate, the tool_start
+    // badge, and the per-turn mutation limit all reason about.
     risk: "read",
     schema: objectSchema(
       {

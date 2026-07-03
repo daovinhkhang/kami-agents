@@ -1,6 +1,22 @@
-import { objectSchema, pagination, graph, graphById, stringArg, typedPayload } from "./shared"
+import { objectSchema, pagination, graph, graphById, stringArg, typedPayload, isObj, isNonEmptyStr, missingField } from "./shared"
 import { registerTool } from "../registry"
+import type { ArgValidationResult } from "../registry"
 import type { KamiCtx } from "../../types"
+
+const validateCreateExchange = (
+  args: Record<string, unknown>
+): ArgValidationResult | null => {
+  const exchange = args.exchange
+  if (!isObj(exchange) || !isNonEmptyStr(exchange.order_id)) {
+    return missingField(
+      "create_exchange",
+      ["exchange.order_id"],
+      "create_exchange requires an exchange object with a non-empty order_id.",
+      "Provide exchange.order_id. List the order first if you do not know its id."
+    )
+  }
+  return null
+}
 
 export const registerExchangeTools = () => {
   registerTool({
@@ -33,6 +49,7 @@ export const registerExchangeTools = () => {
       { exchange: { type: "object" } },
       ["exchange"]
     ),
+    validate: validateCreateExchange,
     handler: async (args, ctx: KamiCtx) => {
       const { beginExchangeOrderWorkflow } = await import("@medusajs/core-flows")
       return await ctx.executor.runWorkflow(beginExchangeOrderWorkflow, typedPayload(args, "exchange"))

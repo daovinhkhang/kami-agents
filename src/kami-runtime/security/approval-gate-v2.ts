@@ -84,7 +84,7 @@ export class ApprovalGate {
 
     // Persist to DB (best-effort)
     try {
-      await (ctx.kami as any).createKamiApprovals([
+      await ctx.kami.createKamiApprovals([
         {
           id: approvalId,
           session_id: ctx.sessionId,
@@ -135,14 +135,14 @@ export class ApprovalGate {
 
     // Update DB (best-effort)
     try {
-      await (ctx.kami as any).updateKamiApprovals({
+      await ctx.kami.updateKamiApprovals({
         id: request.id,
         status: decision.approved ? "approved" : "rejected",
         decided_at: decision.decidedAt,
         decided_by: decision.decidedBy,
         reason: decision.reason,
         scope: decision.scope,
-      })
+      } as any)
     } catch {
       // Best-effort
     }

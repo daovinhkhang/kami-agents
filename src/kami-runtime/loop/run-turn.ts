@@ -7,7 +7,7 @@ import {
   maybeSwitchToFallback,
 } from "../provider/healthcheck"
 import { buildSystemPrompt } from "../prompt/builder"
-import { dispatchTool, checkApproval, waitForApproval, stableArgsKey } from "../tools/dispatcher"
+import { dispatchTool, checkApproval, waitForApproval, stableArgsKey, resolveEffectiveRisk } from "../tools/dispatcher"
 import {
   getTool,
   toolDefinitions,
@@ -105,7 +105,7 @@ const buildGuardrailResult = (
 const createSession = async (input: TurnInput, ctx: Omit<KamiCtx, "sessionId" | "executor">) => {
   if (input.sessionId) {
     try {
-      return await (ctx.kami as any).retrieveKamiSession(input.sessionId)
+      return await ctx.kami.retrieveKamiSession(input.sessionId)
     } catch {
       // Session was deleted — create a fresh one so the turn doesn't crash.
       // The caller (cron tick, gateway, etc.) is responsible for updating
@@ -113,7 +113,7 @@ const createSession = async (input: TurnInput, ctx: Omit<KamiCtx, "sessionId" | 
     }
   }
 
-  const [session] = await (ctx.kami as any).createKamiSessions([
+  const [session] = await ctx.kami.createKamiSessions([
     {
       title: titleFromMessage(input.message),
       source: input.source ?? "admin",
@@ -127,9 +127,9 @@ const createSession = async (input: TurnInput, ctx: Omit<KamiCtx, "sessionId" | 
 }
 
 const incrementMessageCount = async (ctx: KamiCtx, count: number) => {
-  const session = await (ctx.kami as any).retrieveKamiSession(ctx.sessionId)
+  const session = await ctx.kami.retrieveKamiSession(ctx.sessionId)
 
-  await (ctx.kami as any).updateKamiSessions({
+  await ctx.kami.updateKamiSessions({
     id: ctx.sessionId,
     message_count: (session.message_count ?? 0) + count,
   })
@@ -140,7 +140,7 @@ const persistMessage = async (
   message: KamiChatMessage,
   metadata?: Record<string, unknown>
 ) => {
-  const [created] = await (ctx.kami as any).createKamiMessages([
+  const [created] = await ctx.kami.createKamiMessages([
     {
       session_id: ctx.sessionId,
       role: message.role,
@@ -150,7 +150,7 @@ const persistMessage = async (
       reasoning: metadata?.reasoning ?? null,
       content_parts: message.contentParts ?? null,
       metadata: metadata ?? null,
-    },
+    } as any,
   ])
 
   await incrementMessageCount(ctx, 1)
@@ -237,7 +237,7 @@ const completeWithRetry = async (
 }
 
 const loadHistory = async (ctx: KamiCtx) => {
-  const messages = await (ctx.kami as any).listKamiMessages(
+  const messages = await ctx.kami.listKamiMessages(
     { session_id: ctx.sessionId },
     { take: 100, order: { created_at: "ASC" } }
   )
@@ -353,7 +353,7 @@ export async function* runTurn(
             userMessage: input.message,
             results: turnToolResults,
           })
-          const artifact = await createAndPersistArtifact(ctx.kami as any, ctx.sessionId, payload)
+          const artifact = await createAndPersistArtifact(ctx.kami, ctx.sessionId, payload)
           emittedArtifactId = artifact.id
           yield { type: "artifact_done", artifact_id: artifact.id, payload }
         }
@@ -410,7 +410,13 @@ export async function* runTurn(
         const call = completion.toolCalls[callIdx]
         const entry = getTool(call.name)
         const currentTraceIndex = traceIndex++
-        yield { type: "tool_start", call, risk: entry?.risk ?? "safe" }
+        // Effective risk, not the static entry.risk: call_api's real risk
+        // depends on its HTTP method, so the badge/limit reason about the same
+        // risk the approval gate does.
+        const effectiveRisk = entry
+          ? resolveEffectiveRisk(entry, call.arguments)
+          : "read"
+        yield { type: "tool_start", call, risk: entry ? effectiveRisk : "safe" }
         yield {
           type: "trace_step",
           step: {
@@ -448,10 +454,8 @@ export async function* runTurn(
           break
         }
 
-        const entryForLimit = getTool(call.name)
         if (
-          entryForLimit &&
-          (entryForLimit.risk === "mutating" || entryForLimit.risk === "destructive") &&
+          (effectiveRisk === "mutating" || effectiveRisk === "destructive") &&
           ctx.config.autonomyMaxMutationsPerTurn > 0
         ) {
           if (autonomousMutationCount >= ctx.config.autonomyMaxMutationsPerTurn) {

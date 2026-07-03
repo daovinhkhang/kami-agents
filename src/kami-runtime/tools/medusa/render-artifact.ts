@@ -158,13 +158,13 @@ export const renderArtifactHandler = async (args: Record<string, unknown>, ctx: 
   // Persist to DB
   let persistedArtifact: any = null
   try {
-    const existing = await (ctx.kami as any).listKamiArtifacts(
+    const existing = await ctx.kami.listKamiArtifacts(
       { session_id: ctx.sessionId, type: "report" },
       { take: 1, order: { created_at: "DESC" } }
     )
 
     if (existing?.length > 0) {
-      persistedArtifact = await (ctx.kami as any).updateKamiArtifacts({
+      persistedArtifact = await ctx.kami.updateKamiArtifacts({
         id: existing[0].id,
         title: artifact.title,
         payload: artifact,
@@ -176,7 +176,7 @@ export const renderArtifactHandler = async (args: Record<string, unknown>, ctx: 
         },
       })
     } else {
-      const [created] = await (ctx.kami as any).createKamiArtifacts([
+      const [created] = await ctx.kami.createKamiArtifacts([
         {
           session_id: ctx.sessionId,
           type: "report",

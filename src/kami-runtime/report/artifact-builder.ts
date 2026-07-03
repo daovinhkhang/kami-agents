@@ -12,6 +12,7 @@
 
 import type { ArtifactPayload, ArtifactSection, ArtifactDelta } from "./types"
 import type { KamiToolResult } from "../types"
+import type KamiModuleService from "../../modules/kami/services/kami-module-service"
 import { getTurnArtifact } from "../tools/medusa/render-artifact"
 
 /** Tools whose results typically feed into reports. */
@@ -366,7 +367,7 @@ export const mergeArtifactDelta = (
  * Persist artifact to DB.
  */
 export const createAndPersistArtifact = async (
-  kami: any,
+  kami: KamiModuleService,
   sessionId: string,
   payload: ArtifactPayload
 ) => {

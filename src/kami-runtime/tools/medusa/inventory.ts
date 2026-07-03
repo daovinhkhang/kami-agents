@@ -171,9 +171,41 @@ export const registerInventoryTools = () => {
       ["inventory_item_id", "location_id"]
     ),
     handler: async (args, ctx: KamiCtx) => {
+      const inventoryItemId = stringArg(args, "inventory_item_id")
+      const locationId = stringArg(args, "location_id")
+
+      // Resolve the concrete inventory_level.id for this (item, location) pair.
+      // The workflow deletes by level id — passing the inventory_item_id as the
+      // id would target the wrong record (or nothing), and filtering by item
+      // alone would wipe every location's level for that item.
+      const levels = await graph(ctx, "inventory_level", {
+        filters: { inventory_item_id: inventoryItemId, location_id: locationId },
+        fields: ["id", "reserved_quantity"],
+        limit: 1,
+      })
+      const level = (levels as { data?: Array<{ id: string; reserved_quantity?: number }> }).data?.[0]
+
+      if (!level) {
+        return missingField(
+          "delete_inventory_level",
+          ["inventory_item_id", "location_id"],
+          `No inventory level exists for item ${inventoryItemId} at location ${locationId}.`,
+          "Verify the inventory_item_id and location_id with list_inventory_levels before deleting."
+        )
+      }
+
+      if ((level.reserved_quantity ?? 0) > 0) {
+        return missingField(
+          "delete_inventory_level",
+          ["inventory_item_id", "location_id"],
+          `Cannot delete inventory level ${level.id}: it has ${level.reserved_quantity} reserved units at location ${locationId}.`,
+          "Release or fulfill the reservations at this location first, then retry the deletion."
+        )
+      }
+
       const { deleteInventoryLevelsWorkflow } = await import("@medusajs/core-flows")
-      await ctx.executor.runWorkflow(deleteInventoryLevelsWorkflow, { ids: [stringArg(args, "inventory_item_id")] })
-      return { inventory_item_id: args.inventory_item_id, location_id: args.location_id, object: "inventory_level", deleted: true }
+      await ctx.executor.runWorkflow(deleteInventoryLevelsWorkflow, { id: [level.id] })
+      return { id: level.id, inventory_item_id: inventoryItemId, location_id: locationId, object: "inventory_level", deleted: true }
     },
   })
 

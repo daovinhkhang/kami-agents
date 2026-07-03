@@ -21,7 +21,7 @@ export const withAudit = async <T>(
   try {
     const result = await fn()
 
-    await (ctx.kami as any).createKamiAuditLogs({
+    await ctx.kami.createKamiAuditLogs({
       session_id: ctx.sessionId,
       tool: call.name,
       args: call.arguments,
@@ -32,7 +32,7 @@ export const withAudit = async <T>(
 
     return result
   } catch (error) {
-    await (ctx.kami as any).createKamiAuditLogs({
+    await ctx.kami.createKamiAuditLogs({
       session_id: ctx.sessionId,
       tool: call.name,
       args: call.arguments,

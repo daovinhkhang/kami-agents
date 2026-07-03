@@ -132,14 +132,14 @@ export const registerGeneralTools = () => {
     }),
     handler: async (args, ctx) => {
       if (args.name) {
-        const skills = await (ctx.kami as any).listKamiSkills({
+        const skills = await ctx.kami.listKamiSkills({
           name: String(args.name),
         })
 
         return skills[0] ?? null
       }
 
-      return await (ctx.kami as any).listKamiSkills(
+      return await ctx.kami.listKamiSkills(
         { disabled: false },
         {
           take: Number(args.limit ?? 20),
@@ -166,31 +166,31 @@ export const registerGeneralTools = () => {
       ["name", "content"]
     ),
     handler: async (args, ctx) => {
-      const existing = await (ctx.kami as any).listKamiSkills({
+      const existing = await ctx.kami.listKamiSkills({
         name: String(args.name),
       })
 
       if (existing[0]) {
-        return await (ctx.kami as any).updateKamiSkills({
+        return await ctx.kami.updateKamiSkills({
           id: existing[0].id,
-          description: args.description ?? existing[0].description,
-          content: args.content,
-          category: args.category ?? existing[0].category,
-          version: args.version ?? existing[0].version,
-          disabled: args.disabled ?? existing[0].disabled,
+          description: (args.description as string | null) ?? existing[0].description,
+          content: String(args.content),
+          category: (args.category as string | null) ?? existing[0].category,
+          version: (args.version as string) ?? existing[0].version,
+          disabled: (args.disabled as boolean) ?? existing[0].disabled,
           origin: "agent",
         })
       }
 
-      const [skill] = await (ctx.kami as any).createKamiSkills([
+      const [skill] = await ctx.kami.createKamiSkills([
         {
-          name: args.name,
-          description: args.description ?? null,
-          content: args.content,
-          category: args.category ?? null,
-          version: args.version ?? "0.1.0",
+          name: String(args.name),
+          description: (args.description as string | null) ?? null,
+          content: String(args.content),
+          category: (args.category as string | null) ?? null,
+          version: (args.version as string) ?? "0.1.0",
           origin: "agent",
-          disabled: args.disabled ?? false,
+          disabled: (args.disabled as boolean) ?? false,
         },
       ])
 
@@ -211,7 +211,7 @@ export const registerGeneralTools = () => {
       ["query"]
     ),
     handler: async (args, ctx) => {
-      const messages = await (ctx.kami as any).listKamiMessages(
+      const messages = await ctx.kami.listKamiMessages(
         {},
         { take: 500, order: { created_at: "DESC" } }
       )
@@ -242,16 +242,16 @@ export const registerGeneralTools = () => {
       ["type", "title", "payload"]
     ),
     handler: async (args, ctx) => {
-      const [artifact] = await (ctx.kami as any).createKamiArtifacts([
+      const [artifact] = await ctx.kami.createKamiArtifacts([
         {
           session_id: ctx.sessionId,
-          type: args.type ?? "report",
-          title: args.title ?? "KAMI Artifact",
+          type: String(args.type ?? "report"),
+          title: String(args.title ?? "KAMI Artifact"),
           schema_version: "1.0",
-          payload: args.payload,
-          metadata: args.metadata ?? null,
+          payload: args.payload as Record<string, unknown>,
+          metadata: (args.metadata ?? null) as Record<string, unknown> | null,
         },
-      ])
+      ] as Parameters<typeof ctx.kami.createKamiArtifacts>[0])
 
       return artifact
     },
@@ -418,7 +418,7 @@ export const registerGeneralTools = () => {
         metadata: asRecord(args.metadata),
       }
 
-      const [artifact] = await (ctx.kami as any).createKamiArtifacts([
+      const [artifact] = await ctx.kami.createKamiArtifacts([
         {
           session_id: ctx.sessionId,
           type: "draft",
@@ -464,8 +464,10 @@ export const registerGeneralTools = () => {
       ["artifact_id"]
     ),
     handler: async (args, ctx) => {
-      const artifact = await (ctx.kami as any).retrieveKamiArtifact(String(args.artifact_id))
-      const csv = artifactToCsv(artifact.payload)
+      const artifact = await ctx.kami.retrieveKamiArtifact(String(args.artifact_id))
+      const csv = artifactToCsv(
+        artifact.payload as unknown as Parameters<typeof artifactToCsv>[0]
+      )
 
       return {
         artifact_id: artifact.id,
@@ -513,7 +515,7 @@ export const registerGeneralTools = () => {
       // For cron-tick compatibility the schedule field stores the cron expression.
       // The existing parseInterval() helper in cron-tick handles 5-field cron,
       // @hourly / @daily, and `every N *` all in one place.
-      const [job] = await (ctx.kami as any).createKamiJobs([
+      const [job] = await ctx.kami.createKamiJobs([
         {
           name: String(args.name),
           prompt: String(args.prompt),
@@ -522,7 +524,7 @@ export const registerGeneralTools = () => {
           session_id: deliver === "session" ? ctx.sessionId : null,
           enabled: true,
           next_run_at: null, // cron-tick will schedule it
-        },
+        } as Record<string, unknown>,
       ])
 
       return {
@@ -597,53 +599,77 @@ export const registerGeneralTools = () => {
         }
       }
 
-      // Extract snippets: DuckDuckGo HTML results are <a class="result__a"> for
-      // title + url and <a class="result__snippet"> for the snippet text. This
-      // is a best-effort parser — DDG changes its markup occasionally.
-      const results: { title: string; url: string; snippet: string }[] = []
+      // DuckDuckGo's HTML endpoint groups each hit in a <div class="result...">
+      // block containing an <a class="result__a"> title/link and an optional
+      // <a|td class="result__snippet"> snippet. Parsing per-block keeps the
+      // title, url, and snippet aligned even when some hits lack a snippet —
+      // index-pairing across two flat lists silently mismatches them. The
+      // regexes tolerate attribute reordering and single/double quotes because
+      // DDG tweaks its markup periodically; if the block split ever fails we
+      // fall back to scanning the whole document for links.
+      const decodeEntities = (s: string): string =>
+        s
+          .replace(/&amp;/g, "&")
+          .replace(/&#x27;|&#39;/g, "'")
+          .replace(/&quot;/g, '"')
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .replace(/&nbsp;/g, " ")
+
+      const stripTags = (s: string): string =>
+        s.replace(/<\/?[^>]+(>|$)/g, " ").replace(/\s+/g, " ").trim()
+
+      const cleanUrl = (raw: string): string => {
+        const unescaped = decodeEntities(raw).replace(
+          /^(?:https?:)?\/\/(?:[a-z]+\.)?duckduckgo\.com\/l\/\?(?:.*&)?uddg=/i,
+          ""
+        )
+        // The uddg param is URL-encoded; strip any trailing &rut=… tracker.
+        const encoded = unescaped.split("&")[0]
+        try {
+          return decodeURIComponent(encoded)
+        } catch {
+          return encoded
+        }
+      }
+
       const linkRegex =
-        /<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>([^<]*)<\/a>/gi
+        /<a\b[^>]*class=["'][^"']*\bresult__a\b[^"']*["'][^>]*href=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi
       const snippetRegex =
-        /<td[^>]*class="result__snippet"[^>]*>(.*?)<\/td>/gi
+        /class=["'][^"']*\bresult__snippet\b[^"']*["'][^>]*>([\s\S]*?)<\/(?:a|td|div|span)>/i
 
-      let linkMatch: RegExpExecArray | null
-      let snippetMatch: RegExpExecArray | null
+      const results: { title: string; url: string; snippet: string }[] = []
 
-      const links: { title: string; url: string }[] = []
-      const snippets: string[] = []
+      // Split into per-result blocks so each snippet stays with its own link.
+      const blocks = html.split(/<(?:div|tr)\b[^>]*class=["'][^"']*\bresult\b/i)
+      const source = blocks.length > 1 ? blocks.slice(1) : [html]
 
-      while ((linkMatch = linkRegex.exec(html)) !== null) {
-        const rawUrl = linkMatch[1]
-          .replace(/&amp;/g, "&")
-          .replace(/^\/\/duckduckgo\.com\/l\/\?uddg=/, "")
-        const decodedUrl = decodeURIComponent(rawUrl)
-        const title = linkMatch[2]
-          .replace(/<\/?[^>]+(>|$)/g, "")
-          .replace(/&amp;/g, "&")
-          .trim()
+      for (const block of source) {
+        if (results.length >= maxResults) break
 
-        if (title && decodedUrl.startsWith("http")) {
-          links.push({ title, url: decodedUrl })
-        }
+        linkRegex.lastIndex = 0
+        const linkMatch = linkRegex.exec(block)
+        if (!linkMatch) continue
+
+        const url = cleanUrl(linkMatch[1])
+        const title = decodeEntities(stripTags(linkMatch[2]))
+        if (!title || !/^https?:\/\//i.test(url)) continue
+
+        const snippetMatch = snippetRegex.exec(block)
+        const snippet = snippetMatch
+          ? decodeEntities(stripTags(snippetMatch[1]))
+          : ""
+
+        results.push({ title, url, snippet })
       }
 
-      while ((snippetMatch = snippetRegex.exec(html)) !== null) {
-        const text = snippetMatch[1]
-          .replace(/<\/?[^>]+(>|$)/g, "")
-          .replace(/&amp;/g, "&")
-          .trim()
-
-        if (text) {
-          snippets.push(text)
+      if (results.length === 0) {
+        return {
+          query,
+          results: [],
+          count: 0,
+          note: "No results parsed. DuckDuckGo may have changed its markup or rate-limited the request — try web_extract on a specific URL instead.",
         }
-      }
-
-      for (let i = 0; i < Math.min(links.length, snippets.length, maxResults); i++) {
-        results.push({
-          title: links[i].title,
-          url: links[i].url,
-          snippet: snippets[i],
-        })
       }
 
       return { query, results, count: results.length }

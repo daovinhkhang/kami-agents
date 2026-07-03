@@ -74,10 +74,10 @@ export const createDialecticMemoryProvider = (
       const importance = input.importance ?? 1
       const confidence = Math.min(1, Math.max(0.1, importance / 5))
 
-      const [memory] = await (ctx.kami as any).createKamiMemories([
+      const [memory] = await ctx.kami.createKamiMemories([
         {
           content: input.content,
-          type: input.type ?? "belief",
+          type: input.type ?? "factual",
           importance,
           user_id: input.user_id ?? ctx.userId ?? null,
           session_id: input.session_id ?? ctx.sessionId,
@@ -94,7 +94,7 @@ export const createDialecticMemoryProvider = (
     },
 
     async search(input: MemorySearchInput) {
-      const memories = await (ctx.kami as any).listKamiMemories(
+      const memories = await ctx.kami.listKamiMemories(
         {},
         { take: 500, order: { created_at: "DESC" } }
       )
@@ -125,7 +125,7 @@ export const createDialecticMemoryProvider = (
     },
 
     async recall(limit = 10) {
-      const memories = await (ctx.kami as any).listKamiMemories(
+      const memories = await ctx.kami.listKamiMemories(
         {},
         { take: Number(limit), order: { updated_at: "DESC" } }
       )
@@ -133,7 +133,7 @@ export const createDialecticMemoryProvider = (
     },
 
     async getProfile() {
-      const all = await (ctx.kami as any).listKamiMemories(
+      const all = await ctx.kami.listKamiMemories(
         {},
         { take: 200, order: { updated_at: "DESC" } }
       )
@@ -157,7 +157,7 @@ export const createDialecticMemoryProvider = (
     },
 
     async getBeliefs(): Promise<DialecticBelief[]> {
-      const all = await (ctx.kami as any).listKamiMemories(
+      const all = await ctx.kami.listKamiMemories(
         { metadata: { dialectic: true } } as any,
         { take: 200, order: { updated_at: "DESC" } }
       )
@@ -209,16 +209,16 @@ export const createDialecticMemoryProvider = (
         embedding = await embeddingClient.embed(synthesis)
       } catch { /* ok */ }
 
-      const [updated] = await (ctx.kami as any).updateKamiMemories({
+      const existing = await ctx.kami.listKamiMemories({ id: thesisId }, {})
+      const priorCount = Number(existing?.[0]?.metadata?.evidence_count ?? 1)
+
+      const updated = await ctx.kami.updateKamiMemories({
         id: thesisId,
         content: synthesis,
         metadata: {
           synthesis,
           confidence: 0.8,
-          evidence_count: ((await (ctx.kami as any).listKamiMemories(
-            { id: thesisId },
-            {}
-          ))?.[0]?.metadata?.evidence_count ?? 1) + 1,
+          evidence_count: priorCount + 1,
           embedding,
           dialectic: true,
           consolidated_at: new Date().toISOString(),

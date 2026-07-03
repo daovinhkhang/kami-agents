@@ -17,8 +17,19 @@ import {
   TooltipProvider,
   toast,
 } from "@medusajs/ui"
-import { PencilSquare } from "@medusajs/icons"
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import {
+  ChevronDownMini,
+  CircleStack,
+  CogSixTooth,
+  CommandLine,
+  DocumentText,
+  ExclamationCircle,
+  LightBulb,
+  MagnifyingGlass,
+  PencilSquare,
+  SquaresPlus,
+} from "@medusajs/icons"
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -156,17 +167,6 @@ type ArtifactPayload = {
   sections: ArtifactSection[]
   data_sources: Array<{ tool: string; run_at: string; row_count: number }>
 }
-
-const KAMI_ICON_SRC = "/kami-icon.png"
-
-const KamiLogo = ({ className = "size-6" }: { className?: string }) => (
-  <img
-    src={KAMI_ICON_SRC}
-    alt="KAMI"
-    className={`${className} shrink-0 rounded-full object-cover`}
-    loading="eager"
-  />
-)
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -376,6 +376,48 @@ const riskColor = (risk?: string): "green" | "red" | "blue" | "orange" | "grey" 
 
 const toolLabel = (name: string) => name.replace(/_/g, " ")
 
+// Map a tool name to a clean display title + an icon, opencode-style.
+// The title is short and human; the target (file/query/etc) is shown separately.
+const toolIcon = (name: string) => {
+  const n = name.toLowerCase()
+  if (/(search|find|list|query|lookup|get|read|fetch|inspect)/.test(n)) return MagnifyingGlass
+  if (/(report|document|export|template|artifact)/.test(n)) return DocumentText
+  if (/(stock|inventory|product|catalog|price|order|sale)/.test(n)) return CircleStack
+  if (/(create|add|new|draft|schedule|promotion|campaign)/.test(n)) return SquaresPlus
+  if (/(setting|config|update|edit|adjust|fix)/.test(n)) return CogSixTooth
+  if (/(run|exec|command|shell|workflow)/.test(n)) return CommandLine
+  return CircleStack
+}
+
+// Pull the most meaningful "target" out of tool args for the title line,
+// mirroring opencode's label() priority list.
+const toolTarget = (args?: Row): string | undefined => {
+  if (!args) return undefined
+  const keys = ["title", "name", "query", "q", "id", "sku", "email", "path", "file_path", "url", "type"]
+  for (const key of keys) {
+    const value = args[key]
+    if (typeof value === "string" && value.length > 0) return value
+    if (typeof value === "number") return String(value)
+  }
+  return undefined
+}
+
+// Flatten remaining args into short key=value chips (skipping the target keys),
+// like opencode's args() helper. Caps to keep the header tidy.
+const toolArgChips = (args?: Row): string[] => {
+  if (!args) return []
+  const skip = new Set(["title", "name", "query", "q", "id", "sku", "email", "path", "file_path", "url", "type"])
+  return Object.entries(args)
+    .filter(([key]) => !skip.has(key))
+    .flatMap(([key, value]) => {
+      if (value == null) return []
+      if (typeof value === "string") return [`${key}=${value.length > 32 ? `${value.slice(0, 32)}...` : value}`]
+      if (typeof value === "number" || typeof value === "boolean") return [`${key}=${value}`]
+      return [`${key}={…}`]
+    })
+    .slice(0, 4)
+}
+
 const getSessionMeta = (session: Row) => session.metadata ?? {}
 
 const getSessionTags = (session: Row): string[] => {
@@ -439,6 +481,14 @@ const injectStyles = () => {
       from { transform: translateX(0); opacity: 1; }
       to { transform: translateX(100%); opacity: 0; }
     }
+    @keyframes kami-slideInLeft {
+      from { transform: translateX(-100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes kami-slideOutLeft {
+      from { transform: translateX(0); opacity: 1; }
+      to { transform: translateX(-100%); opacity: 0; }
+    }
     .kami-panel-slide-in {
       animation: kami-slideInRight 0.25s ease-out;
     }
@@ -462,9 +512,109 @@ const injectStyles = () => {
       box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.08);
     }
     @media (prefers-reduced-motion: reduce) {
-      .kami-spinner {
-        animation: none;
+      .kami-spinner { animation: none; }
+      .kami-panel-slide-in, .kami-panel-slide-out { animation: none; }
+    }
+
+    /* ===== MOBILE RESPONSIVE (<768px) ===== */
+    @media (max-width: 767px) {
+      /* Top bar — compact */
+      .kami-topbar { padding: 6px 10px !important; gap: 4px !important; flex-wrap: wrap !important; }
+      .kami-topbar-left { gap: 6px !important; }
+      .kami-topbar-right {
+        gap: 2px !important;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding-bottom: 4px;
       }
+      .kami-topbar-right::-webkit-scrollbar { display: none; }
+      .kami-topbar .kami-topbar-desktop-btn { display: none !important; }
+      .kami-topbar .kami-hamburger-btn { display: inline-flex !important; }
+
+      /* Sidebar overlay */
+      .kami-sidebar-overlay {
+        position: fixed !important;
+        inset: 0;
+        z-index: 50;
+        background: rgba(0,0,0,0.4);
+      }
+      .kami-sidebar-panel {
+        position: fixed !important;
+        top: 0; left: 0; bottom: 0;
+        width: 280px !important;
+        max-width: 85vw;
+        z-index: 51;
+        box-shadow: 4px 0 24px rgba(0,0,0,0.15);
+      }
+      .kami-sidebar-panel.kami-slide-in-left {
+        animation: kami-slideInLeft 0.2s ease-out;
+      }
+      .kami-sidebar-panel.kami-slide-out-left {
+        animation: kami-slideOutLeft 0.2s ease-in forwards;
+      }
+
+      /* Right panels — fullscreen overlay on mobile */
+      .kami-right-panel {
+        position: fixed !important;
+        inset: 0 !important;
+        width: 100vw !important;
+        min-width: 100vw !important;
+        z-index: 40;
+        border-left: none !important;
+      }
+      .kami-right-panel .kami-panel-slide-in {
+        animation: kami-slideInRight 0.2s ease-out;
+      }
+      .kami-right-panel .kami-panel-slide-out {
+        animation: kami-slideOutRight 0.2s ease-in forwards;
+      }
+
+      /* Chat area */
+      .kami-chat-area { padding-left: 8px !important; padding-right: 8px !important; }
+      .kami-messages-area { padding: 8px !important; }
+
+      /* Message bubbles — wider on mobile */
+      .kami-msg-bubble {
+        max-width: 92% !important;
+      }
+
+      /* Execution trace — compact */
+      .kami-execution-trace .kami-trace-summary { gap: 2px !important; }
+      .kami-execution-trace .kami-trace-steps { flex-wrap: wrap !important; }
+
+      /* Input area */
+      .kami-input-area { padding: 8px 10px !important; }
+      .kami-input-composer { border-radius: 12px !important; }
+
+      /* Welcome state */
+      .kami-welcome { padding: 16px !important; }
+      .kami-welcome-suggestions { gap: 6px !important; }
+      .kami-welcome-suggestions button { padding: 6px 10px !important; font-size: 11px !important; }
+
+      /* Drawer — Medusa's Drawer adapts but we ensure scroll */
+      [data-kami-drawer-body] { max-height: 70vh !important; }
+
+      /* Bottom safe-area for phones with notch */
+      .kami-input-area {
+        padding-bottom: max(8px, env(safe-area-inset-bottom, 8px)) !important;
+      }
+
+      /* Touch-friendly targets */
+      .kami-touch-btn {
+        min-width: 36px !important;
+        min-height: 36px !important;
+        padding: 6px 10px !important;
+        font-size: 12px !important;
+      }
+    }
+
+    /* ===== TABLET (768px–1023px) ===== */
+    @media (min-width: 768px) and (max-width: 1023px) {
+      .kami-topbar-right { gap: 2px !important; }
+      .kami-topbar .kami-topbar-desktop-btn { font-size: 10px !important; padding: 4px 6px !important; }
+      .kami-right-panel { width: 360px !important; min-width: 360px !important; }
     }
   `
   document.head.appendChild(style)
@@ -474,199 +624,97 @@ const injectStyles = () => {
 /*  Markdown Components                                                */
 /* ------------------------------------------------------------------ */
 
-/** Simple markdown-to-JSX renderer — covers the 90% case without ESM dep. */
-const KamiMarkdown = ({ text }: { text: string }) => {
-  const nodes: React.ReactNode[] = []
-  const lines = text.split("\n")
-  let i = 0
+/** GFM-capable markdown renderer (react-markdown + remark-gfm) styled with
+ *  Medusa UI tokens. Replaces the former hand-rolled parser, which mangled
+ *  tables with empty cells, nested lists, nested emphasis, h4-h6, blockquotes,
+ *  strikethrough, and alignment rows. */
+const CodeBlock = ({ code, lang }: { code: string; lang?: string }) => (
+  <div className="group relative my-3 rounded-lg border border-ui-border-base bg-ui-bg-subtle">
+    <div className="flex items-center justify-between border-b border-ui-border-base px-3 py-1.5">
+      <Text size="xsmall" className="text-ui-fg-muted font-mono">{lang || "code"}</Text>
+      <Copy content={code} />
+    </div>
+    <pre className="overflow-x-auto p-3">
+      <code className="font-mono text-xs whitespace-pre text-ui-fg-base">{code}</code>
+    </pre>
+  </div>
+)
 
-  while (i < lines.length) {
-    const line = lines[i]
-
-    // Code block: ``` ... ```
-    if (line.trim().startsWith("```")) {
-      const lang = line.trim().slice(3).trim()
-      const codeLines: string[] = []
-      i++
-      while (i < lines.length && !lines[i].trim().startsWith("```")) {
-        codeLines.push(lines[i])
-        i++
-      }
-      i++ // skip closing ```
-      const code = codeLines.join("\n")
-      if (!code.includes("\n") && code.length < 60) {
-        nodes.push(
-          <code key={i} className="rounded bg-ui-bg-subtle px-1.5 py-0.5 font-mono text-xs text-ui-fg-base">
-            {code}
-          </code>
-        )
-      } else {
-        nodes.push(
-          <div key={i} className="group relative my-3 rounded-lg border border-ui-border-base bg-ui-bg-subtle">
-            <div className="flex items-center justify-between border-b border-ui-border-base px-3 py-1.5">
-              <Text size="xsmall" className="text-ui-fg-muted font-mono">{lang || "code"}</Text>
-              <Copy content={code} />
-            </div>
-            <pre className="overflow-x-auto p-3">
-              <code className="font-mono text-xs whitespace-pre text-ui-fg-base">{code}</code>
-            </pre>
-          </div>
-        )
-      }
-      continue
+const markdownComponents = {
+  h1: ({ children }: any) => <div className="text-lg font-bold text-ui-fg-base mt-3 mb-1">{children}</div>,
+  h2: ({ children }: any) => <div className="text-base font-semibold text-ui-fg-base mt-3 mb-1">{children}</div>,
+  h3: ({ children }: any) => <div className="text-sm font-semibold text-ui-fg-base mt-3 mb-1">{children}</div>,
+  h4: ({ children }: any) => <div className="text-sm font-semibold text-ui-fg-base mt-2 mb-1">{children}</div>,
+  h5: ({ children }: any) => <div className="text-xs font-semibold text-ui-fg-subtle mt-2 mb-0.5">{children}</div>,
+  h6: ({ children }: any) => <div className="text-xs font-semibold text-ui-fg-muted mt-2 mb-0.5">{children}</div>,
+  p: ({ children }: any) => <p className="text-sm text-ui-fg-base my-1 leading-relaxed">{children}</p>,
+  ul: ({ children }: any) => <ul className="list-disc pl-5 my-1.5 space-y-0.5 text-sm text-ui-fg-base">{children}</ul>,
+  ol: ({ children }: any) => <ol className="list-decimal pl-5 my-1.5 space-y-0.5 text-sm text-ui-fg-base">{children}</ol>,
+  li: ({ children }: any) => <li className="text-sm text-ui-fg-base">{children}</li>,
+  strong: ({ children }: any) => <strong className="font-semibold">{children}</strong>,
+  em: ({ children }: any) => <em>{children}</em>,
+  del: ({ children }: any) => <del className="text-ui-fg-muted">{children}</del>,
+  a: ({ href, children }: any) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-ui-fg-interactive underline">
+      {children}
+    </a>
+  ),
+  blockquote: ({ children }: any) => (
+    <blockquote className="my-2 border-l-2 border-ui-border-strong pl-3 text-sm italic text-ui-fg-subtle">
+      {children}
+    </blockquote>
+  ),
+  hr: () => <hr className="my-3 border-ui-border-base" />,
+  table: ({ children }: any) => (
+    <div className="overflow-x-auto my-2">
+      <table className="min-w-full border-collapse border border-ui-border-base text-xs">{children}</table>
+    </div>
+  ),
+  thead: ({ children }: any) => <thead>{children}</thead>,
+  th: ({ children, style }: any) => (
+    <th style={style} className="border border-ui-border-base bg-ui-bg-subtle px-2 py-1 font-semibold text-ui-fg-base">{children}</th>
+  ),
+  td: ({ children, style }: any) => (
+    <td style={style} className="border border-ui-border-base px-2 py-1 text-ui-fg-base">{children}</td>
+  ),
+  code: ({ inline, className, children }: any) => {
+    const text = String(children ?? "").replace(/\n$/, "")
+    const langMatch = /language-(\w+)/.exec(className ?? "")
+    // react-markdown v10 drops the `inline` flag; a fenced block wraps its code
+    // in a <pre>, so we detect a block by the presence of a language class or a
+    // trailing newline. Everything else renders as inline code.
+    const isBlock = Boolean(langMatch) || text.includes("\n")
+    if (!inline && isBlock) {
+      return <CodeBlock code={text} lang={langMatch?.[1]} />
     }
-
-    // Blank line
-    if (!line.trim()) {
-      i++
-      continue
-    }
-
-    // Header: # ## ###
-    const hMatch = line.match(/^(#{1,3})\s+(.+)/)
-    if (hMatch) {
-      const level = hMatch[1].length
-      const text = hMatch[2]
-      const cn = level === 1 ? "text-lg font-bold" : level === 2 ? "text-base font-semibold" : "text-sm font-semibold"
-      nodes.push(<div key={i} className={`${cn} text-ui-fg-base mt-3 mb-1`}>{parseInline(text)}</div>)
-      i++
-      continue
-    }
-
-    // Unordered list: - * or +
-    if (/^\s*[-*+]\s+/.test(line)) {
-      const items: string[] = []
-      while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*[-*+]\s+/, ""))
-        i++
-      }
-      nodes.push(
-        <ul key={i} className="list-disc pl-5 my-1.5 space-y-0.5">
-          {items.map((item, j) => (
-            <li key={j} className="text-sm text-ui-fg-base">{parseInline(item)}</li>
-          ))}
-        </ul>
-      )
-      continue
-    }
-
-    // Ordered list: 1. 2.
-    if (/^\s*\d+\.\s+/.test(line)) {
-      const items: string[] = []
-      while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*\d+\.\s+/, ""))
-        i++
-      }
-      nodes.push(
-        <ol key={i} className="list-decimal pl-5 my-1.5 space-y-0.5">
-          {items.map((item, j) => (
-            <li key={j} className="text-sm text-ui-fg-base">{parseInline(item)}</li>
-          ))}
-        </ol>
-      )
-      continue
-    }
-
-    // Table: | col | col |
-    if (line.includes("|") && lines[i + 1]?.includes("---")) {
-      const headerLine = line
-      i += 2 // skip separator
-      const headers = headerLine.split("|").filter(Boolean).map((h) => h.trim())
-      const rows: string[][] = []
-      while (i < lines.length && lines[i].includes("|")) {
-        rows.push(lines[i].split("|").filter(Boolean).map((c) => c.trim()))
-        i++
-      }
-      nodes.push(
-        <div key={i} className="overflow-x-auto my-2">
-          <table className="min-w-full border-collapse border border-ui-border-base text-xs">
-            <thead>
-              <tr>
-                {headers.map((h, j) => (
-                  <th key={j} className="border border-ui-border-base bg-ui-bg-subtle px-2 py-1 font-semibold">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row, ri) => (
-                <tr key={ri}>
-                  {row.map((cell, ci) => (
-                    <td key={ci} className="border border-ui-border-base px-2 py-1">{parseInline(cell)}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )
-      continue
-    }
-
-    // Regular paragraph
-    nodes.push(
-      <p key={i} className="text-sm text-ui-fg-base my-1">{parseInline(line)}</p>
-    )
-    i++
-  }
-
-  return <>{nodes}</>
+    return <code className="rounded bg-ui-bg-subtle px-1 py-0.5 font-mono text-xs text-ui-fg-base">{children}</code>
+  },
+  pre: ({ children }: any) => <>{children}</>,
 }
 
-/** Parse inline markdown: bold, italic, code, links, line breaks */
-const parseInline = (text: string): React.ReactNode => {
-  // Split by code (`...`), bold (**...**), italic (*...*), links [...](...)
-  const parts: React.ReactNode[] = []
-  let remaining = text
-  let key = 0
-
-  while (remaining.length > 0) {
-    // Inline code: `...`
-    const codeMatch = remaining.match(/`([^`]+)`/)
-    // Bold: **...**
-    const boldMatch = remaining.match(/\*\*(.+?)\*\*/)
-    // Italic: *...*
-    const italicMatch = remaining.match(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/)
-    // Link: [text](url)
-    const linkMatch = remaining.match(/\[([^\]]+)\]\(([^)]+)\)/)
-
-    const matches = [
-      { m: codeMatch, pos: codeMatch?.index ?? Infinity, handler: () => {
-        parts.push(<code key={key++} className="rounded bg-ui-bg-subtle px-1 py-0.5 font-mono text-xs">{codeMatch![1]}</code>)
-        return codeMatch![0].length
-      }},
-      { m: boldMatch, pos: boldMatch?.index ?? Infinity, handler: () => {
-        parts.push(<strong key={key++}>{boldMatch![1]}</strong>)
-        return boldMatch![0].length
-      }},
-      { m: italicMatch, pos: italicMatch?.index ?? Infinity, handler: () => {
-        parts.push(<em key={key++}>{italicMatch![1]}</em>)
-        return italicMatch![0].length
-      }},
-      { m: linkMatch, pos: linkMatch?.index ?? Infinity, handler: () => {
-        parts.push(
-          <a key={key++} href={linkMatch![2]} target="_blank" rel="noopener noreferrer" className="text-ui-fg-interactive underline">
-            {linkMatch![1]}
-          </a>
-        )
-        return linkMatch![0].length
-      }},
-    ].filter((m) => m.m).sort((a, b) => a.pos - b.pos)
-
-    if (matches.length === 0) {
-      parts.push(remaining)
-      break
-    }
-
-    const first = matches[0]
-    if (first.pos > 0) {
-      parts.push(remaining.slice(0, first.pos))
-    }
-    const consumed = first.handler()
-    remaining = remaining.slice(first.pos + consumed)
+// react-markdown v10 and remark-gfm v4 are ESM-only. Under tsc's Node16 module
+// mode this file is treated as CommonJS, so a static import is rejected. A lazy
+// dynamic import satisfies both tsc and the Vite bundler, and yields a
+// plain-text fallback while the chunk loads.
+const LazyMarkdown = lazy(async () => {
+  const [{ default: ReactMarkdown }, { default: remarkGfm }] = await Promise.all([
+    import("react-markdown"),
+    import("remark-gfm"),
+  ])
+  return {
+    default: ({ text }: { text: string }) => (
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        {text}
+      </ReactMarkdown>
+    ),
   }
+})
 
-  return <>{parts}</>
-}
+const KamiMarkdown = ({ text }: { text: string }) => (
+  <Suspense fallback={<p className="text-sm text-ui-fg-base my-1 whitespace-pre-wrap">{text}</p>}>
+    <LazyMarkdown text={text} />
+  </Suspense>
+)
 
 /* ------------------------------------------------------------------ */
 /*  Message Components                                                 */
@@ -696,6 +744,10 @@ const updateToolResultParts = (
 
   return next
 }
+
+// Stable empty array so sessions with no messages don't re-render on every
+// state change (a fresh `[]` literal would break referential equality).
+const EMPTY_MESSAGES: ChatMessage[] = []
 
 const mergeToolMessages = (messages: ChatMessage[]) => {
   const merged: ChatMessage[] = []
@@ -733,156 +785,159 @@ const mergeToolMessages = (messages: ChatMessage[]) => {
   return merged
 }
 
-const ExecutionTrace = ({
-  thought,
-  tools,
-  traceSteps,
-  isStreaming,
-}: {
-  thought?: string
-  tools: Array<ContentPart & { type: "tool_call" }>
-  traceSteps?: TraceStep[]
-  isStreaming?: boolean
-}) => {
-  const active = Boolean(isStreaming && (thought || tools.some((tool) => tool.result === undefined)))
-  const [open, setOpen] = useState(active)
+// A small chevron that rotates when its collapsible is open.
+const Chevron = ({ open }: { open: boolean }) => (
+  <ChevronDownMini
+    className={`shrink-0 text-ui-fg-muted transition-transform duration-150 ${open ? "" : "-rotate-90"}`}
+  />
+)
 
-  useEffect(() => {
-    setOpen(active)
-  }, [active])
-
-  const derivedSteps: TraceStep[] = traceSteps?.length
-    ? traceSteps
-    : tools.map((tool, index) => ({
-        index,
-        tool: tool.tool_name,
-        label: toolLabel(tool.tool_name),
-        status: tool.result === undefined ? "running" : "done",
-      }))
-
-  if (!thought && tools.length === 0 && derivedSteps.length === 0) return null
-
-  const completedTools = tools.filter((tool) => tool.result !== undefined).length
-  const summary = [
-    thought ? "thought" : null,
-    derivedSteps.length ? `${derivedSteps.filter((step) => step.status !== "running").length}/${derivedSteps.length} steps` : null,
-  ].filter(Boolean).join(" · ")
+// Collapsible "Thinking" block — the model's reasoning, rendered as markdown.
+// Mirrors opencode's reasoning card: quiet by default, expandable.
+const ThinkingBlock = ({ thought, active }: { thought: string; active?: boolean }) => {
+  const [open, setOpen] = useState(false)
 
   return (
-    <div className="my-1.5 overflow-hidden rounded-md border border-ui-border-base bg-ui-bg-subtle kami-fade-in">
+    <div className="overflow-hidden rounded-lg border border-ui-border-base bg-ui-bg-subtle kami-fade-in">
       <button
+        type="button"
         className="flex w-full items-center gap-x-2 px-3 py-2 text-left hover:bg-ui-bg-base-hover"
         onClick={() => setOpen(!open)}
       >
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-x-1.5">
-            {derivedSteps.length ? (
-              derivedSteps.slice(0, 5).map((step, index) => (
-                <span key={`${step.tool}-${step.index}`} className="flex min-w-0 items-center gap-x-1.5">
-                  <Text
-                    size="xsmall"
-                    className={`truncate ${step.status === "error" ? "text-ui-tag-red-text" : step.status === "running" ? "text-ui-fg-interactive" : "text-ui-fg-subtle"}`}
-                  >
-                    {step.label}
-                  </Text>
-                  {index < Math.min(derivedSteps.length, 5) - 1 && (
-                    <Text size="xsmall" className="text-ui-fg-muted">-</Text>
-                  )}
-                </span>
-              ))
-            ) : (
-              <Text size="xsmall" weight="plus" className="text-ui-fg-base">
-                Execution
-              </Text>
-            )}
-            {derivedSteps.length > 5 && (
-              <Text size="xsmall" className="text-ui-fg-muted">
-                +{derivedSteps.length - 5}
-              </Text>
-            )}
-          </div>
-          {summary && (
-            <Text size="xsmall" className="text-ui-fg-muted">
-              {summary}
-            </Text>
-          )}
-        </div>
+        <LightBulb className="shrink-0 text-ui-fg-muted" />
+        <Text size="xsmall" weight="plus" className="text-ui-fg-subtle">
+          {active ? "Thinking" : "Thought"}
+        </Text>
         {active && (
-          <span className="flex gap-0.5 ml-1">
-            <span className="inline-block w-1 h-1 rounded-full bg-ui-fg-muted kami-thinking-dot" />
-            <span className="inline-block w-1 h-1 rounded-full bg-ui-fg-muted kami-thinking-dot" />
-            <span className="inline-block w-1 h-1 rounded-full bg-ui-fg-muted kami-thinking-dot" />
+          <span className="flex gap-0.5">
+            <span className="inline-block size-1 rounded-full bg-ui-fg-muted kami-thinking-dot" />
+            <span className="inline-block size-1 rounded-full bg-ui-fg-muted kami-thinking-dot" />
+            <span className="inline-block size-1 rounded-full bg-ui-fg-muted kami-thinking-dot" />
           </span>
         )}
-        <Badge size="2xsmall" color={active ? "orange" : "green"}>
-          {active ? "running" : "done"}
-        </Badge>
-        <Text size="xsmall" className="ml-auto text-ui-fg-muted">
-          {open ? "Hide" : "Details"}
-        </Text>
+        <span className="ml-auto">
+          <Chevron open={open} />
+        </span>
       </button>
       {open && (
-        <div className="border-t border-ui-border-base px-3 py-2.5 space-y-2">
-          {derivedSteps.length > 0 && (
-            <div className="space-y-1.5">
-              <Text size="xsmall" weight="plus" className="text-ui-fg-subtle">
-                Timeline
-              </Text>
-              <div className="space-y-1">
-                {derivedSteps.map((step) => (
-                  <div key={`${step.index}-${step.tool}`} className="flex items-center gap-x-2">
-                    <span className={`h-1.5 w-10 rounded-full ${step.status === "done" ? "bg-ui-tag-green-icon" : step.status === "error" ? "bg-ui-tag-red-icon" : "bg-ui-tag-orange-icon"}`} />
-                    <Text size="xsmall" className="min-w-0 flex-1 truncate text-ui-fg-base">
-                      {step.label}
-                    </Text>
-                    <Text size="xsmall" className="text-ui-fg-muted">
-                      {step.status}
-                    </Text>
-                  </div>
-                ))}
-              </div>
-            </div>
+        <div className="border-t border-ui-border-base px-3 py-2.5">
+          <Text
+            size="xsmall"
+            className="max-h-64 overflow-y-auto whitespace-pre-wrap leading-relaxed text-ui-fg-subtle"
+          >
+            {thought}
+          </Text>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// A single tool call rendered as a collapsible card, opencode-style:
+// icon + clean title + target + arg chips in the header; args/result in the body.
+const ToolCard = ({
+  tool,
+  active,
+}: {
+  tool: ContentPart & { type: "tool_call" }
+  active?: boolean
+}) => {
+  const pending = tool.result === undefined
+  const running = Boolean(active && pending)
+  const [open, setOpen] = useState(false)
+  const Icon = toolIcon(tool.tool_name)
+  const target = toolTarget(tool.args)
+  const chips = toolArgChips(tool.args)
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-ui-border-base bg-ui-bg-base kami-fade-in">
+      <button
+        type="button"
+        className="flex w-full items-center gap-x-2 px-3 py-2 text-left hover:bg-ui-bg-base-hover"
+        onClick={() => setOpen(!open)}
+      >
+        {running ? (
+          <span className="kami-spinner" />
+        ) : (
+          <Icon className="shrink-0 text-ui-fg-subtle" />
+        )}
+        <div className="flex min-w-0 flex-1 items-center gap-x-2">
+          <Text size="xsmall" weight="plus" className="shrink-0 text-ui-fg-base">
+            {toolLabel(tool.tool_name)}
+          </Text>
+          {target && (
+            <Text size="xsmall" className="truncate font-mono text-ui-fg-subtle">
+              {target}
+            </Text>
           )}
-          {thought && (
+          {chips.slice(0, 2).map((chip, i) => (
+            <span
+              key={i}
+              className="hidden shrink-0 rounded bg-ui-bg-subtle px-1.5 py-0.5 font-mono text-[10px] text-ui-fg-muted sm:inline"
+            >
+              {chip}
+            </span>
+          ))}
+        </div>
+        <Badge size="2xsmall" color={riskColor(tool.risk)}>
+          {tool.risk ?? "safe"}
+        </Badge>
+        {running && (
+          <Text size="xsmall" className="text-ui-fg-interactive">
+            running
+          </Text>
+        )}
+        <Chevron open={open} />
+      </button>
+      {open && (
+        <div className="space-y-2 border-t border-ui-border-base px-3 py-2.5">
+          {tool.args && Object.keys(tool.args).length > 0 && (
             <div>
-              <Text size="xsmall" weight="plus" className="mb-1 text-ui-fg-subtle">
-                Reasoning
+              <Text size="xsmall" weight="plus" className="mb-1 text-ui-fg-muted">
+                Input
               </Text>
-              <Text size="xsmall" className="max-h-28 overflow-y-auto whitespace-pre-wrap text-ui-fg-subtle leading-relaxed">
-                {thought}
-              </Text>
+              <pre className="max-h-48 overflow-auto rounded bg-ui-bg-subtle px-2.5 py-2 font-mono text-[11px] leading-relaxed text-ui-fg-subtle">
+                {safeJson(tool.args)}
+              </pre>
             </div>
           )}
-
-          {tools.length > 0 && (
-            <div className="space-y-1.5">
-              <Text size="xsmall" weight="plus" className="text-ui-fg-subtle">
-                Tools
+          {!pending && (
+            <div>
+              <Text size="xsmall" weight="plus" className="mb-1 text-ui-fg-muted">
+                Result
               </Text>
-              {tools.map((tool, i) => {
-                const pending = tool.result === undefined
-
-                return (
-                  <div key={`${tool.tool_name}-${i}`} className="rounded-md border border-ui-border-base bg-ui-bg-base px-2.5 py-2">
-                    <div className="flex items-center gap-x-2">
-                      <Text size="xsmall" weight="plus" className="text-ui-fg-base">
-                        {toolLabel(tool.tool_name)}
-                      </Text>
-                      <Badge size="2xsmall" color={riskColor(tool.risk)}>{tool.risk ?? "safe"}</Badge>
-                      <Text size="xsmall" className="ml-auto text-ui-fg-muted">
-                        {pending ? "running" : "done"}
-                      </Text>
-                    </div>
-                    <Text size="xsmall" className="mt-1 line-clamp-2 text-ui-fg-subtle">
-                      {pending ? compact(tool.args ?? {}, 120) : compact(tool.result, 160)}
-                    </Text>
-                  </div>
-                )
-              })}
+              <pre className="max-h-64 overflow-auto rounded bg-ui-bg-subtle px-2.5 py-2 font-mono text-[11px] leading-relaxed text-ui-fg-subtle">
+                {typeof tool.result === "string" ? tool.result : safeJson(tool.result)}
+              </pre>
             </div>
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+// Renders the reasoning + tool timeline for an assistant turn as a flat stack
+// of cards (thinking first, then each tool), matching opencode's clean layout.
+const ExecutionTrace = ({
+  thought,
+  tools,
+  isStreaming,
+}: {
+  thought?: string
+  tools: Array<ContentPart & { type: "tool_call" }>
+  isStreaming?: boolean
+}) => {
+  const active = Boolean(isStreaming && (thought || tools.some((tool) => tool.result === undefined)))
+
+  if (!thought && tools.length === 0) return null
+
+  return (
+    <div className="my-1.5 w-full space-y-1.5">
+      {thought && <ThinkingBlock thought={thought} active={active && !tools.length} />}
+      {tools.map((tool, i) => (
+        <ToolCard key={`${tool.tool_name}-${i}`} tool={tool} active={active} />
+      ))}
     </div>
   )
 }
@@ -895,13 +950,53 @@ const AssistantLoading = () => (
   </div>
 )
 
-const ErrorBlock = ({ error }: { error: string }) => (
-  <div className="rounded-md border border-ui-tag-red-border bg-ui-tag-red-bg px-3 py-2 kami-fade-in">
-    <Text size="small" className="whitespace-pre-wrap text-ui-tag-red-text">
-      {error}
-    </Text>
-  </div>
-)
+// Dedicated error card with a copy button, opencode's ToolErrorCard-style.
+const ErrorBlock = ({ error }: { error: string }) => {
+  const cleaned = error.replace(/^Error:\s*/, "").trim()
+  const [head, ...restParts] = cleaned.split(": ")
+  const hasSplit = restParts.length > 0
+  const subtitle = hasSplit ? head.trim() : "Failed"
+  const body = hasSplit ? restParts.join(": ").trim() : cleaned
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-ui-tag-red-border bg-ui-tag-red-bg kami-fade-in">
+      <div className="flex items-start gap-x-2 px-3 py-2">
+        <ExclamationCircle className="mt-0.5 shrink-0 text-ui-tag-red-icon" />
+        <div className="min-w-0 flex-1">
+          <Text size="xsmall" weight="plus" className="text-ui-tag-red-text">
+            {subtitle}
+          </Text>
+          {body && (
+            <Text size="xsmall" className="mt-0.5 whitespace-pre-wrap break-words text-ui-tag-red-text opacity-90">
+              {body}
+            </Text>
+          )}
+        </div>
+        <Copy content={cleaned} className="shrink-0 text-ui-tag-red-text" />
+      </div>
+    </div>
+  )
+}
+
+const kindIcon = (kind: QuickAction["kind"]) => {
+  switch (kind) {
+    case "create":
+      return SquaresPlus
+    case "draft":
+      return PencilSquare
+    case "inspect":
+      return MagnifyingGlass
+    case "fix":
+      return CogSixTooth
+    case "schedule":
+      return CogSixTooth
+    case "export":
+    case "report":
+      return DocumentText
+    default:
+      return CircleStack
+  }
+}
 
 const QuickActionCards = ({
   actions,
@@ -913,28 +1008,51 @@ const QuickActionCards = ({
   if (!actions?.length) return null
 
   return (
-    <div className="grid gap-1.5 pt-1 sm:grid-cols-2">
-      {actions.map((action, index) => (
-        <button
-          key={`${action.tool}-${index}`}
-          className="rounded-md border border-ui-border-base bg-ui-bg-subtle px-3 py-2 text-left transition-colors hover:bg-ui-bg-base-hover"
-          onClick={() => onAction(action)}
-        >
-          <div className="flex items-center gap-x-2">
-            <Text size="xsmall" weight="plus" className="truncate text-ui-fg-base">
-              {action.label}
-            </Text>
-            <Badge size="2xsmall" color={riskColor(action.risk)}>
-              {action.kind}
-            </Badge>
-          </div>
-          {action.description && (
-            <Text size="xsmall" className="mt-1 line-clamp-2 text-ui-fg-subtle">
-              {action.description}
-            </Text>
-          )}
-        </button>
-      ))}
+    <div className="pt-1">
+      <div className="mb-1.5 flex items-center gap-x-1.5 px-0.5">
+        <LightBulb className="text-ui-fg-muted" />
+        <Text size="xsmall" weight="plus" className="text-ui-fg-muted">
+          Đề xuất tiếp theo
+        </Text>
+      </div>
+      <div className="grid gap-1.5 sm:grid-cols-2">
+        {actions.map((action, index) => {
+          const Icon = kindIcon(action.kind)
+          return (
+            <button
+              key={`${action.tool}-${index}`}
+              className="group flex items-start gap-x-2.5 rounded-lg border border-ui-border-base bg-ui-bg-subtle px-3 py-2 text-left transition-colors hover:border-ui-border-interactive hover:bg-ui-bg-base-hover"
+              onClick={() => onAction(action)}
+            >
+              <span className="mt-0.5 shrink-0 text-ui-fg-muted transition-colors group-hover:text-ui-fg-interactive">
+                <Icon />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-x-2">
+                  <Text
+                    size="xsmall"
+                    weight="plus"
+                    className="truncate text-ui-fg-base"
+                  >
+                    {action.label}
+                  </Text>
+                  <Badge size="2xsmall" color={riskColor(action.risk)}>
+                    {action.kind}
+                  </Badge>
+                </div>
+                {action.description && (
+                  <Text
+                    size="xsmall"
+                    className="mt-0.5 line-clamp-2 text-ui-fg-subtle"
+                  >
+                    {action.description}
+                  </Text>
+                )}
+              </div>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -953,7 +1071,6 @@ const ChatMessageBubble = ({
   const parts: ContentPart[] = msg.content_parts ?? []
   const thought = parts.find((p) => p.type === "think")?.think
   const tools = parts.filter((p) => p.type === "tool_call") as Array<ContentPart & { type: "tool_call" }>
-  const traceSteps = (parts.find((p) => p.type === "trace") as any)?.steps as TraceStep[] | undefined
 
   if (isTool) {
     if (parts.some((part) => part.type === "error")) {
@@ -973,40 +1090,40 @@ const ChatMessageBubble = ({
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} kami-msg-enter`}>
-      <div className={`flex gap-x-3 max-w-[85%] ${isUser ? "flex-row-reverse" : "flex-row"}`}>
+      <div className={`kami-msg-bubble flex gap-x-3 max-w-[85%] ${isUser ? "flex-row-reverse" : "flex-row"}`}>
         {/* Avatar */}
-        <div className={`flex size-6 shrink-0 items-center justify-center overflow-hidden rounded-full mt-0.5 ${isUser ? "bg-ui-tag-blue-bg" : "bg-ui-bg-subtle"}`}>
-          {isUser ? (
-            <Text size="xsmall" weight="plus" className="text-ui-tag-blue-text">
-              U
-            </Text>
-          ) : (
-            <KamiLogo className="size-6" />
-          )}
+        <div className={`flex size-6 shrink-0 items-center justify-center rounded-full mt-0.5 ${isUser ? "bg-ui-tag-blue-bg" : "bg-ui-tag-purple-bg"}`}>
+          <Text size="xsmall" weight="plus" className={isUser ? "text-ui-tag-blue-text" : "text-ui-tag-purple-text"}>
+            {isUser ? "U" : "K"}
+          </Text>
         </div>
 
         {/* Content */}
-        <div className={`space-y-1.5 ${isUser ? "items-end" : "items-start"}`}>
-          <ExecutionTrace thought={thought} tools={tools} traceSteps={traceSteps} isStreaming={isStreaming} />
+        <div className={`flex min-w-0 flex-1 flex-col space-y-1.5 ${isUser ? "items-end" : "items-start"}`}>
+          <ExecutionTrace thought={thought} tools={tools} isStreaming={isStreaming} />
 
           {/* Text content */}
           {isUser ? (
-            <div className="rounded-2xl rounded-tr-sm bg-ui-tag-blue-bg px-3.5 py-2">
-              <Text size="small" className="whitespace-pre-wrap text-ui-tag-blue-text">
+            <div className="max-w-full rounded-2xl rounded-tr-sm bg-ui-tag-blue-bg px-3.5 py-2">
+              <Text size="small" className="whitespace-pre-wrap break-words text-ui-tag-blue-text">
                 {msg.content}
               </Text>
             </div>
-          ) : (
-            <div className="rounded-2xl rounded-tl-sm border border-ui-border-base bg-ui-bg-base px-3.5 py-2">
-              {msg.content ? (
-                <>
-                  <KamiMarkdown text={msg.content} />
-                  {isStreaming && <span className="kami-stream-caret text-ui-fg-interactive" />}
-                </>
-              ) : (
-                isStreaming && <AssistantLoading />
-              )}
+          ) : msg.content ? (
+            <div className="max-w-full overflow-hidden rounded-2xl rounded-tl-sm border border-ui-border-base bg-ui-bg-base px-3.5 py-2">
+              <KamiMarkdown text={msg.content} />
+              {isStreaming && <span className="kami-stream-caret text-ui-fg-interactive" />}
             </div>
+          ) : (
+            // No text yet. Only show the loading dots when nothing else is
+            // rendered (no thinking, no tools) so we don't stack a redundant
+            // empty bubble under the tool cards. Once the turn is done with no
+            // text (tools-only turn), render nothing instead of an empty box.
+            isStreaming && !thought && tools.length === 0 && (
+              <div className="rounded-2xl rounded-tl-sm border border-ui-border-base bg-ui-bg-base px-3.5 py-2">
+                <AssistantLoading />
+              </div>
+            )
           )}
 
           {parts.filter((p) => p.type === "error").map((part, i) => (
@@ -1075,7 +1192,7 @@ const ArtifactPanel = ({
   }
 
   return (
-    <div className={`flex min-h-0 w-[420px] shrink-0 flex-col border-l border-ui-border-base bg-ui-bg-base ${animClass}`}>
+    <div className={`kami-right-panel flex min-h-0 w-[420px] shrink-0 flex-col border-l border-ui-border-base bg-ui-bg-base ${animClass}`}>
       <div className="border-b border-ui-border-base px-4 py-3">
         <div className="flex items-start justify-between gap-x-3">
           <div className="min-w-0">
@@ -1241,7 +1358,7 @@ const UiCommandPanel = ({
   const severity = command.severity ?? "info"
 
   return (
-    <div className="flex min-h-0 w-[420px] shrink-0 flex-col border-l border-ui-border-base bg-ui-bg-base">
+    <div className="kami-right-panel flex min-h-0 w-[420px] shrink-0 flex-col border-l border-ui-border-base bg-ui-bg-base">
       <div className="border-b border-ui-border-base px-4 py-3">
         <div className="flex items-start justify-between gap-x-3">
           <div className="min-w-0">
@@ -1377,7 +1494,7 @@ const DraftPanel = ({
   }
 
   return (
-    <div className="flex min-h-0 w-[460px] shrink-0 flex-col border-l border-ui-border-base bg-ui-bg-base">
+    <div className="kami-right-panel flex min-h-0 w-[460px] shrink-0 flex-col border-l border-ui-border-base bg-ui-bg-base">
       <div className="border-b border-ui-border-base px-4 py-3">
         <div className="flex items-start justify-between gap-x-3">
           <div className="min-w-0">
@@ -1487,7 +1604,7 @@ const AdminDrawer = ({
         </Drawer.Header>
         {/* min-h-0 + overflow-y-auto: Drawer.Body defaults to flex-1 only (no overflow),
             so long content (Cron/Memory/Settings) overflows without scrolling. */}
-        <Drawer.Body className="min-h-0 space-y-4 overflow-y-auto px-4">
+        <Drawer.Body className="min-h-0 space-y-4 overflow-y-auto px-4" data-kami-drawer-body>
           {tab === "approvals" && (
             <div className="space-y-2">
               {approvals?.length ? approvals.map((a: Row) => (
@@ -1841,14 +1958,29 @@ const AdminDrawer = ({
 /* ------------------------------------------------------------------ */
 
 const KamiPage = () => {
+  // Mobile detection
+  const [isMobile, setIsMobile] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768)
+    check()
+    window.addEventListener("resize", check)
+    return () => window.removeEventListener("resize", check)
+  }, [])
+
   const [prompt, setPrompt] = useState("")
   const [sessionId, setSessionId] = useState<string | undefined>()
-  const [isRunning, setIsRunning] = useState(false)
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  // Messages are stored PER SESSION so a background generation in one session
+  // never bleeds into whatever session the user is currently viewing. The
+  // rendered `messages` below is derived from the currently-viewed bucket.
+  // A brand-new chat (no id yet) uses the "pending" key until the server
+  // assigns a real session id, at which point the bucket is migrated.
+  const [messagesBySession, setMessagesBySession] = useState<Record<string, ChatMessage[]>>({})
   const [sessions, setSessions] = useState<Row[]>([])
   const [sessionFilter, setSessionFilter] = useState("")
   const [drawerTab, setDrawerTab] = useState<TabId | null>(null)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState("")
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
@@ -1903,6 +2035,30 @@ const KamiPage = () => {
   const voiceSpeakingRef = useRef<SpeechSynthesisUtterance | null>(null)
   const realtimeVoiceRef = useRef<Row | null>(null)
   const runningSessionRef = useRef<string | null>(null)
+
+  // Messages for the currently-viewed session. A new chat (no id yet) reads
+  // from the "pending" bucket. Everything renders off this derived value, so
+  // switching sessions instantly shows that session's own conversation.
+  const viewKey = sessionId ?? "pending"
+  const messages = messagesBySession[viewKey] ?? EMPTY_MESSAGES
+
+  // Running state is derived per-session from `runningSessions`, never a single
+  // global flag. Switching to a non-running session shows no spinner even while
+  // another session generates in the background.
+  const isRunning = runningSessions.has(viewKey)
+
+  // Update the message list for a specific session (defaults to the running
+  // session so background deltas land in the right bucket regardless of which
+  // session the user is currently viewing).
+  const updateSessionMessages = useCallback(
+    (key: string, updater: (prev: ChatMessage[]) => ChatMessage[]) => {
+      setMessagesBySession((prev) => ({
+        ...prev,
+        [key]: updater(prev[key] ?? []),
+      }))
+    },
+    []
+  )
 
   const setVoiceStateValue = (state: VoiceState) => {
     voiceStateRef.current = state
@@ -1975,10 +2131,13 @@ const KamiPage = () => {
       const results = await Promise.all(statusPromises)
       const activeIds = results.filter(Boolean) as string[]
       setRunningSessions((prev) => {
+        // Server poll is authoritative for background generations (including
+        // ones started in another tab). Union with any still-in-flight local
+        // markers the server hasn't registered yet: the current turn's bucket
+        // (runningSessionRef) and a not-yet-assigned "pending" chat.
         const next = new Set(activeIds)
         const localRunning = runningSessionRef.current
         if (localRunning) next.add(localRunning)
-        if (isRunning && sessionId) next.add(sessionId)
         if (prev.has("pending")) next.add("pending")
         return next
       })
@@ -2056,6 +2215,18 @@ const KamiPage = () => {
 
   useEffect(() => { injectStyles() }, [])
 
+  // Auto-close sidebar on mobile after switching sessions
+  useEffect(() => {
+    if (isMobile && sidebarOpen && sessionId) {
+      setSidebarOpen(false)
+    }
+  }, [sessionId, isMobile])
+
+  // Sync sidebar with mobile state
+  useEffect(() => {
+    if (!isMobile) setSidebarOpen(true)
+  }, [isMobile])
+
   useLayoutEffect(() => {
     const root = rootRef.current
     if (!root) return
@@ -2126,7 +2297,16 @@ const KamiPage = () => {
         created_at: m.created_at ?? undefined,
       }))
       setSessionId(id)
-      setMessages(mergeToolMessages(msgs))
+      // Don't clobber a bucket that THIS tab is actively streaming into — the
+      // live deltas are more current than the persisted messages. If there's no
+      // local bucket yet (e.g. the generation is running elsewhere, or finished
+      // while we were away), seed from the server.
+      const seeded = mergeToolMessages(msgs)
+      setMessagesBySession((prev) => {
+        const hasLiveBucket = runningSessions.has(id) && prev[id]?.length
+        if (hasLiveBucket) return prev
+        return { ...prev, [id]: seeded }
+      })
       await Promise.all([loadReports(id), loadDrafts(id)])
       setTimeout(() => scrollToBottom(false), 100)
     } catch (e) {
@@ -2136,7 +2316,14 @@ const KamiPage = () => {
 
   const newChat = () => {
     setSessionId(undefined)
-    setMessages([])
+    // Clear only the "pending" bucket (a fresh new chat). Other sessions'
+    // messages stay intact so their background generations keep accumulating.
+    setMessagesBySession((prev) => {
+      if (prev["pending"] === undefined) return prev
+      const next = { ...prev }
+      delete next["pending"]
+      return next
+    })
     setPrompt("")
     setReports([])
     setActiveReport(null)
@@ -2304,7 +2491,7 @@ const KamiPage = () => {
     }
 
     const resultText = typeof data.result === "string" ? data.result : JSON.stringify(data.result, null, 2)
-    setMessages((prev) => [
+    updateSessionMessages(sessionId ?? "pending", (prev) => [
       ...prev,
       {
         role: "assistant",
@@ -2340,24 +2527,38 @@ const KamiPage = () => {
     toast.success("Draft dismissed")
   }
 
-  const sendMessage = async (options?: { text?: string; session_id?: string }): Promise<string> => {
+  const sendMessage = async (options?: { text?: string; session_id?: string; hideBubble?: boolean }): Promise<string> => {
     const text = (options?.text ?? prompt).trim()
+    // hideBubble sends the full text to the backend (so the AI gets context)
+    // without pushing a user bubble. Quick-action follow-ups use this: the
+    // visible user bubble + tool card are already rendered by runQuickAction,
+    // so the follow-up turn only needs to stream the assistant's analysis.
+    const hideBubble = options?.hideBubble ?? false
     const targetSessionId = options?.session_id ?? sessionId
-    if (!text || isRunning) return ""
+    // Block only if the SAME session is already generating — a background
+    // generation in another session must never block this one.
+    const alreadyRunning =
+      runningSessions.has(targetSessionId || "pending")
+    if (!text || alreadyRunning) return ""
     if (!options?.text) {
       setPrompt("")
     }
-    setIsRunning(true)
     const now = new Date().toISOString()
 
-    // Track this session as running (for sidebar spinner)
-    const runningSessionToTrack = targetSessionId || "pending"
-    runningSessionRef.current = runningSessionToTrack
-    setRunningSessions((prev) => new Set(prev).add(runningSessionToTrack))
+    // Every message this turn writes to a FIXED bucket key, decoupled from the
+    // currently-viewed session. If the user switches away mid-generation, the
+    // deltas keep landing in this bucket instead of the session they navigated
+    // to. Starts as "pending" for a brand-new chat and is migrated to the real
+    // session id once the server assigns one (see the "session" event below).
+    let bucketKey = targetSessionId || "pending"
+    runningSessionRef.current = bucketKey
+    setRunningSessions((prev) => new Set(prev).add(bucketKey))
 
-    setMessages((prev) => [
+    updateSessionMessages(bucketKey, (prev) => [
       ...prev,
-      { role: "user", content: text, created_at: now },
+      ...(hideBubble
+        ? []
+        : [{ role: "user" as const, content: text, created_at: now }]),
       {
         role: "assistant",
         content: "",
@@ -2380,6 +2581,7 @@ const KamiPage = () => {
       const decoder = new TextDecoder()
       let buf = ""
       let asstText = ""
+      let asstReasoning = ""
       let finalAssistantText = ""
       let asstParts: ContentPart[] = []
       let currentArtifactId: string | null = null
@@ -2397,7 +2599,7 @@ const KamiPage = () => {
           if (!evt) continue
 
           if (evt.type === "session") {
-            setSessionId(evt.session_id)
+            setSessionId((current) => current ?? evt.session_id)
             setSessions((prev) => {
               if (prev.some((session) => session.id === evt.session_id)) return prev
 
@@ -2413,7 +2615,19 @@ const KamiPage = () => {
                 ...prev,
               ]
             })
-            // Track the real session ID for the sidebar spinner
+            // Migrate the "pending" bucket to the real session id so the
+            // in-flight messages follow the session, then keep writing there.
+            if (bucketKey !== evt.session_id) {
+              const oldKey = bucketKey
+              bucketKey = evt.session_id
+              setMessagesBySession((prev) => {
+                if (prev[oldKey] === undefined) return prev
+                const next = { ...prev }
+                next[evt.session_id] = next[oldKey]
+                if (oldKey === "pending") delete next[oldKey]
+                return next
+              })
+            }
             runningSessionRef.current = evt.session_id
             setRunningSessions((prev) => {
               const next = new Set(prev)
@@ -2427,7 +2641,7 @@ const KamiPage = () => {
             asstText += evt.delta ?? ""
             asstParts = asstParts.filter((p) => p.type !== "text")
             asstParts.push({ type: "text", text: asstText })
-            setMessages((prev) => {
+            updateSessionMessages(bucketKey, (prev) => {
               const last = prev[prev.length - 1]
               if (last?.role === "assistant") {
                 return [...prev.slice(0, -1), { ...last, content: asstText, content_parts: [...asstParts], metadata: { ...(last.metadata ?? {}), pending: false } }]
@@ -2437,9 +2651,10 @@ const KamiPage = () => {
           }
 
           if (evt.type === "reasoning_delta") {
+            asstReasoning += evt.delta ?? ""
             asstParts = asstParts.filter((p) => p.type !== "think")
-            asstParts.unshift({ type: "think", think: evt.delta ?? "" })
-            setMessages((prev) => {
+            asstParts.unshift({ type: "think", think: asstReasoning })
+            updateSessionMessages(bucketKey, (prev) => {
               const last = prev[prev.length - 1]
               if (last?.role === "assistant") {
                 return [...prev.slice(0, -1), { ...last, content_parts: [...asstParts], metadata: { ...(last.metadata ?? {}), pending: false } }]
@@ -2450,7 +2665,7 @@ const KamiPage = () => {
 
           if (evt.type === "tool_start") {
             asstParts.push({ type: "tool_call", tool_name: evt.call?.name ?? "", args: evt.call?.arguments, risk: evt.risk })
-            setMessages((prev) => {
+            updateSessionMessages(bucketKey, (prev) => {
               const last = prev[prev.length - 1]
               if (last?.role === "assistant") {
                 return [...prev.slice(0, -1), { ...last, content_parts: [...asstParts], metadata: { ...(last.metadata ?? {}), pending: false } }]
@@ -2461,7 +2676,7 @@ const KamiPage = () => {
 
           if (evt.type === "tool_result") {
             asstParts = updateToolResultParts(asstParts, evt.call, evt.result, evt.risk)
-            setMessages((prev) => {
+            updateSessionMessages(bucketKey, (prev) => {
               const last = prev[prev.length - 1]
               if (last?.role === "assistant") {
                 return [...prev.slice(0, -1), { ...last, content_parts: [...asstParts], metadata: { ...(last.metadata ?? {}), pending: false } }]
@@ -2482,7 +2697,7 @@ const KamiPage = () => {
             steps.sort((a, b) => a.index - b.index)
             asstParts = asstParts.filter((p) => p.type !== "trace")
             asstParts.unshift({ type: "trace", steps })
-            setMessages((prev) => {
+            updateSessionMessages(bucketKey, (prev) => {
               const last = prev[prev.length - 1]
               if (last?.role === "assistant") {
                 return [...prev.slice(0, -1), { ...last, content_parts: [...asstParts], metadata: { ...(last.metadata ?? {}), pending: false } }]
@@ -2504,7 +2719,7 @@ const KamiPage = () => {
             setActiveDraft(null)
             setActiveCommand(null)
             setReports((prev) => [report, ...prev.filter((item) => item.id !== report.id)])
-            setMessages((prev) => {
+            updateSessionMessages(bucketKey, (prev) => {
               const last = prev[prev.length - 1]
               if (last?.role === "assistant") {
                 return [...prev.slice(0, -1), { ...last, metadata: { ...(last.metadata ?? {}), artifact_id: currentArtifactId, pending: false } }]
@@ -2515,7 +2730,7 @@ const KamiPage = () => {
 
           if (evt.type === "quick_actions") {
             currentQuickActions = evt.actions ?? []
-            setMessages((prev) => {
+            updateSessionMessages(bucketKey, (prev) => {
               const last = prev[prev.length - 1]
               if (last?.role === "assistant") {
                 return [...prev.slice(0, -1), { ...last, metadata: { ...(last.metadata ?? {}), quick_actions: currentQuickActions, pending: false } }]
@@ -2554,7 +2769,7 @@ const KamiPage = () => {
               content_parts: [{ type: "error", error: `Approval required: ${evt.call?.name ?? "unknown"}. Check the Approvals panel.` }],
               created_at: new Date().toISOString(),
             }
-            setMessages((prev) => [...prev, appMsg])
+            updateSessionMessages(bucketKey, (prev) => [...prev, appMsg])
             loadData().catch(() => {})
           }
 
@@ -2565,13 +2780,13 @@ const KamiPage = () => {
               content_parts: [{ type: "error", error: evt.message ?? "Unknown error" }],
               created_at: new Date().toISOString(),
             }
-            setMessages((prev) => [...prev, errMsg])
+            updateSessionMessages(bucketKey, (prev) => [...prev, errMsg])
           }
 
           if (evt.type === "done") {
             finalAssistantText = asstText
             // Finalize the assistant message
-            setMessages((prev) => {
+            updateSessionMessages(bucketKey, (prev) => {
               const last = prev[prev.length - 1]
               if (last?.role === "assistant") {
                 return [...prev.slice(0, -1), {
@@ -2588,6 +2803,7 @@ const KamiPage = () => {
               return prev
             })
             asstText = ""
+            asstReasoning = ""
             asstParts = []
           }
         }
@@ -2597,7 +2813,7 @@ const KamiPage = () => {
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
       toast.error(message)
-      setMessages((prev) => {
+      updateSessionMessages(bucketKey, (prev) => {
         const last = prev[prev.length - 1]
 
         if (last?.role === "assistant" && !last.content && !(last.content_parts?.length)) {
@@ -2615,15 +2831,18 @@ const KamiPage = () => {
       })
       return ""
     } finally {
-      setIsRunning(false)
-      // Remove from running sessions (use the ref which has the resolved sessionId)
-      const sessionToRemove = runningSessionRef.current
-      runningSessionRef.current = null
+      // Clear the running flag for THIS turn's bucket only. `bucketKey` is a
+      // closure-local (already migrated to the real session id above), so
+      // concurrent generations in other sessions are never affected — unlike
+      // the shared runningSessionRef, which a second turn would clobber.
+      if (runningSessionRef.current === bucketKey) {
+        runningSessionRef.current = null
+      }
       setRunningSessions((prev) => {
+        if (!prev.has(bucketKey) && !prev.has("pending")) return prev
         const next = new Set(prev)
         next.delete("pending")
-        if (sessionToRemove) next.delete(sessionToRemove)
-        if (targetSessionId) next.delete(targetSessionId)
+        next.delete(bucketKey)
         return next
       })
     }
@@ -2755,7 +2974,8 @@ const KamiPage = () => {
         ? data.result
         : JSON.stringify(data.result, null, 2)
 
-      setMessages((prev) => [
+      const actionKey = data.session_id ?? action.session_id ?? sessionId ?? "pending"
+      updateSessionMessages(actionKey, (prev) => [
         ...prev,
         {
           role: "user" as const,
@@ -2777,15 +2997,16 @@ const KamiPage = () => {
       ])
 
       // ── Step 3: Trigger AI follow-up turn ──
-      // The AI sees the tool result and provides analysis, next steps,
-      // and potentially new quick actions — instead of a dead-end "completed."
-      const summary = typeof data.result === "string"
-        ? data.result.slice(0, 400)
-        : JSON.stringify(data.result).slice(0, 400)
-
+      // The backend does NOT persist the quick-action result to session
+      // history, so the follow-up prompt must carry the raw result itself for
+      // the AI to have context. hideBubble keeps that JSON-carrying prompt out
+      // of the visible chat — the clean user bubble + tool card from Step 2
+      // already show the user what ran, so the follow-up only streams the
+      // assistant's analysis.
       await sendMessage({
-        text: `Tôi vừa thực hiện hành động "${action.label}". Kết quả (đã hiển thị ở trên): ${summary}\n\nHãy phân tích kết quả, cho biết đã xử lý được những gì, và đề xuất các bước tiếp theo nếu cần.`,
+        hideBubble: true,
         session_id: data.session_id ?? sessionId,
+        text: `Người dùng vừa chạy hành động "${action.label}". Kết quả của công cụ \`${action.tool}\`:\n\n\`\`\`json\n${resultText.slice(0, 4000)}\n\`\`\`\n\nHãy phân tích kết quả này, cho biết đã xử lý được những gì, và đề xuất các bước tiếp theo nếu cần.`,
       })
 
       await loadData()
@@ -3010,6 +3231,27 @@ const KamiPage = () => {
     tick()
   }
 
+  const checkVoiceCapabilities = (): string | null => {
+    // Check secure context (HTTPS or localhost required for getUserMedia)
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      return "Voice requires HTTPS. This page is loaded over an insecure connection."
+    }
+    // Check MediaRecorder (required for send mode)
+    if (typeof MediaRecorder === "undefined") {
+      return "MediaRecorder is not supported in this browser. Try Chrome, Edge, or Safari 14+."
+    }
+    // Check getUserMedia (required for microphone)
+    if (!navigator.mediaDevices?.getUserMedia) {
+      return "Microphone access is not available. Ensure the page is served over HTTPS and your browser supports getUserMedia."
+    }
+    // Check AudioContext
+    const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext
+    if (!AudioContextCtor) {
+      return "AudioContext is not supported in this browser."
+    }
+    return null
+  }
+
   const startVoiceCapture = async () => {
     if (!voiceConfig?.modes?.send) {
       toast.error("ASR is not enabled")
@@ -3017,8 +3259,9 @@ const KamiPage = () => {
       voiceLoopActiveRef.current = false
       return
     }
-    if (typeof MediaRecorder === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      toast.error("MediaRecorder is not supported in this browser")
+    const capError = checkVoiceCapabilities()
+    if (capError) {
+      toast.error(capError)
       setVoiceLoopActive(false)
       voiceLoopActiveRef.current = false
       return
@@ -3147,17 +3390,14 @@ const KamiPage = () => {
       toast.error(voiceConfig?.realtime?.error || "Realtime ASR is not enabled")
       return
     }
-    if (!navigator.mediaDevices?.getUserMedia) {
-      toast.error("Microphone is not supported in this browser")
+    const capError = checkVoiceCapabilities()
+    if (capError) {
+      toast.error(capError)
       return
     }
     if (voiceState !== "idle") return
 
     const AudioContextCtor = (window as any).AudioContext || (window as any).webkitAudioContext
-    if (!AudioContextCtor) {
-      toast.error("AudioContext is not supported in this browser")
-      return
-    }
 
     try {
       setVoiceInterim("")
@@ -3274,14 +3514,30 @@ const KamiPage = () => {
         style={{ height: "var(--kami-viewport-height, 100vh)", maxHeight: "var(--kami-viewport-height, 100vh)" }}
       >
         {/* Top bar */}
-        <div className="flex items-center justify-between border-b border-ui-border-base px-4 py-2 shrink-0">
-          <div className="flex items-center gap-x-3">
-            <Button size="small" variant="transparent" onClick={() => setSidebarOpen(!sidebarOpen)}>
+        <div className="kami-topbar flex items-center justify-between border-b border-ui-border-base px-4 py-2 shrink-0">
+          <div className="kami-topbar-left flex items-center gap-x-3">
+            {/* Hamburger on mobile, Sessions on desktop */}
+            <Button
+              size="small"
+              variant="transparent"
+              className="kami-hamburger-btn"
+              style={isMobile ? {} : { display: "none" }}
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            >
+              {mobileMenuOpen ? "✕" : "☰"}
+            </Button>
+            <Button
+              size="small"
+              variant="transparent"
+              className="kami-topbar-desktop-btn"
+              style={isMobile ? { display: "none" } : {}}
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+            >
               {sidebarOpen ? "Hide sessions" : "Sessions"}
             </Button>
             <div className="flex items-center gap-x-2">
-              <div className="flex size-8 items-center justify-center overflow-hidden rounded-lg bg-ui-bg-subtle">
-                <KamiLogo className="size-8" />
+              <div className="flex size-7 items-center justify-center rounded-md bg-ui-tag-purple-bg">
+                <Text size="small" weight="plus" className="text-ui-tag-purple-text">K</Text>
               </div>
               <div>
                 <Heading level="h2" className="!text-base">KAMI</Heading>
@@ -3290,69 +3546,94 @@ const KamiPage = () => {
             {isRunning && <Badge size="2xsmall" color="purple">generating</Badge>}
           </div>
 
-          <div className="flex items-center gap-x-1.5">
-            {/* Tab buttons */}
+          <div className="kami-topbar-right flex items-center gap-x-1.5">
+            {/* Essential buttons always visible */}
             <Tooltip content="Approvals">
-              <Button size="small" variant="transparent" onClick={() => setDrawerTab("approvals")}>
-                Approvals
-                {pendingApprovals.length > 0 && (
-                  <Badge size="2xsmall" color="orange">{pendingApprovals.length}</Badge>
-                )}
+              <Button size="small" variant="transparent" onClick={() => { setDrawerTab("approvals"); setMobileMenuOpen(false) }} className="kami-touch-btn">
+                {pendingApprovals.length > 0 ? `${pendingApprovals.length}⚠` : "Appr"}
               </Button>
             </Tooltip>
-            <Tooltip content="Audit Log"><Button size="small" variant="transparent" onClick={() => setDrawerTab("audit")}>Audit</Button></Tooltip>
-            <Tooltip content="Memory"><Button size="small" variant="transparent" onClick={() => setDrawerTab("memory")}>Memory</Button></Tooltip>
-            <Tooltip content="Skills"><Button size="small" variant="transparent" onClick={() => setDrawerTab("skills")}>Skills</Button></Tooltip>
-            <Tooltip content="Cron"><Button size="small" variant="transparent" onClick={() => setDrawerTab("cron")}>Cron</Button></Tooltip>
-            <Tooltip content="Gateways"><Button size="small" variant="transparent" onClick={() => setDrawerTab("gateways")}>Gateways</Button></Tooltip>
-            <Tooltip content="Autonomy"><Button size="small" variant="transparent" onClick={() => setDrawerTab("autonomy")}>Autonomy</Button></Tooltip>
-            <Tooltip content="Evaluations"><Button size="small" variant="transparent" onClick={() => setDrawerTab("evals")}>Evals</Button></Tooltip>
-            <Tooltip content="Settings"><Button size="small" variant="transparent" onClick={() => setDrawerTab("settings")}>Settings</Button></Tooltip>
-            {reports.length > 0 && (
-              <Tooltip content="Reports">
-                <Button
-                  size="small"
-                  variant="transparent"
-                  onClick={() => {
-                    setActiveReport(reports[0])
-                    setActiveDraft(null)
-                    setActiveCommand(null)
-                  }}
-                >
-                  Reports
-                  <Badge size="2xsmall" color="blue">{reports.length}</Badge>
-                </Button>
-              </Tooltip>
-            )}
-            {drafts.length > 0 && (
-              <Tooltip content="Drafts">
-                <Button
-                  size="small"
-                  variant="transparent"
-                  onClick={() => {
-                    setActiveDraft(drafts.find((draft) => draft.payload?.status === "pending") ?? drafts[0])
-                    setActiveReport(null)
-                    setActiveCommand(null)
-                  }}
-                >
-                  Drafts
-                  <Badge size="2xsmall" color="orange">{drafts.length}</Badge>
-                </Button>
-              </Tooltip>
+            <Tooltip content="Reports">
+              <Button
+                size="small"
+                variant="transparent"
+                className="kami-touch-btn"
+                disabled={reports.length === 0}
+                onClick={() => {
+                  setActiveReport(reports[0])
+                  setActiveDraft(null)
+                  setActiveCommand(null)
+                }}
+              >
+                Rpt{reports.length > 0 ? `(${reports.length})` : ""}
+              </Button>
+            </Tooltip>
+            <Tooltip content="Drafts">
+              <Button
+                size="small"
+                variant="transparent"
+                className="kami-touch-btn"
+                disabled={drafts.length === 0}
+                onClick={() => {
+                  setActiveDraft(drafts.find((draft) => draft.payload?.status === "pending") ?? drafts[0])
+                  setActiveReport(null)
+                  setActiveCommand(null)
+                }}
+              >
+                Drft{drafts.length > 0 ? `(${drafts.length})` : ""}
+              </Button>
+            </Tooltip>
+
+            {/* Desktop-only tab buttons */}
+            <Tooltip content="Audit Log"><Button size="small" variant="transparent" className="kami-topbar-desktop-btn" onClick={() => setDrawerTab("audit")}>Audit</Button></Tooltip>
+            <Tooltip content="Memory"><Button size="small" variant="transparent" className="kami-topbar-desktop-btn" onClick={() => setDrawerTab("memory")}>Memory</Button></Tooltip>
+            <Tooltip content="Skills"><Button size="small" variant="transparent" className="kami-topbar-desktop-btn" onClick={() => setDrawerTab("skills")}>Skills</Button></Tooltip>
+            <Tooltip content="Cron"><Button size="small" variant="transparent" className="kami-topbar-desktop-btn" onClick={() => setDrawerTab("cron")}>Cron</Button></Tooltip>
+            <Tooltip content="Gateways"><Button size="small" variant="transparent" className="kami-topbar-desktop-btn" onClick={() => setDrawerTab("gateways")}>Gateways</Button></Tooltip>
+            <Tooltip content="Autonomy"><Button size="small" variant="transparent" className="kami-topbar-desktop-btn" onClick={() => setDrawerTab("autonomy")}>Autonomy</Button></Tooltip>
+            <Tooltip content="Evaluations"><Button size="small" variant="transparent" className="kami-topbar-desktop-btn" onClick={() => setDrawerTab("evals")}>Evals</Button></Tooltip>
+            <Tooltip content="Settings"><Button size="small" variant="transparent" className="kami-topbar-desktop-btn" onClick={() => setDrawerTab("settings")}>Settings</Button></Tooltip>
+
+            {/* "More" dropdown on mobile */}
+            {isMobile && (
+              <DropdownMenu>
+                <Tooltip content="More">
+                  <DropdownMenu.Trigger asChild>
+                    <Button size="small" variant="transparent" className="kami-touch-btn">•••</Button>
+                  </DropdownMenu.Trigger>
+                </Tooltip>
+                <DropdownMenu.Content align="end" className="min-w-[160px]">
+                  <DropdownMenu.Item onSelect={() => setDrawerTab("audit")}>Audit Log</DropdownMenu.Item>
+                  <DropdownMenu.Item onSelect={() => setDrawerTab("memory")}>Memory</DropdownMenu.Item>
+                  <DropdownMenu.Item onSelect={() => setDrawerTab("skills")}>Skills</DropdownMenu.Item>
+                  <DropdownMenu.Item onSelect={() => setDrawerTab("cron")}>Cron Jobs</DropdownMenu.Item>
+                  <DropdownMenu.Item onSelect={() => setDrawerTab("gateways")}>Gateways</DropdownMenu.Item>
+                  <DropdownMenu.Item onSelect={() => setDrawerTab("autonomy")}>Autonomy</DropdownMenu.Item>
+                  <DropdownMenu.Item onSelect={() => setDrawerTab("evals")}>Evaluations</DropdownMenu.Item>
+                  <DropdownMenu.Item onSelect={() => setDrawerTab("settings")}>Settings</DropdownMenu.Item>
+                </DropdownMenu.Content>
+              </DropdownMenu>
             )}
 
             <div className="w-px h-5 bg-ui-border-base mx-1" />
 
-            <Button size="small" variant="secondary" onClick={loadData}>Refresh</Button>
-            <Button size="small" variant="danger" onClick={halt}>Halt</Button>
+            <Button size="small" variant="secondary" onClick={loadData} className="kami-touch-btn">↻</Button>
+            <Button size="small" variant="danger" onClick={halt} className="kami-touch-btn">■</Button>
           </div>
         </div>
 
         {/* Main: Sidebar + Chat */}
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          {/* Session Sidebar */}
-          {sidebarOpen && (
-            <div className="flex min-h-0 w-[260px] shrink-0 flex-col border-r border-ui-border-base bg-ui-bg-subtle">
+          {/* Session Sidebar — mobile overlay + desktop inline */}
+          {(isMobile ? mobileMenuOpen : sidebarOpen) && (
+            <>
+              {isMobile && <div className="kami-sidebar-overlay" onClick={() => setMobileMenuOpen(false)} />}
+              <div
+                className={isMobile
+                  ? "kami-sidebar-panel kami-slide-in-left flex min-h-0 flex-col border-r border-ui-border-base bg-ui-bg-subtle"
+                  : "flex min-h-0 w-[260px] shrink-0 flex-col border-r border-ui-border-base bg-ui-bg-subtle"}
+                onClick={isMobile ? (e: any) => e.stopPropagation() : undefined}
+              >
               <div className="p-3 space-y-2 border-b border-ui-border-base">
                 <Button
                   size="small"
@@ -3429,7 +3710,7 @@ const KamiPage = () => {
                   const isDeleting = deletingSessionId === s.id
                   const metadata = getSessionMeta(s)
                   const tags = getSessionTags(s)
-                  const sessionIsRunning = runningSessions.has(s.id) || (isRunning && s.id === sessionId)
+                  const sessionIsRunning = runningSessions.has(s.id)
 
                   return (
                     <div
@@ -3559,14 +3840,15 @@ const KamiPage = () => {
                 )}
               </div>
             </div>
-          )}
+          </>
+        )}
 
           {/* Chat Area */}
-          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden min-w-0">
+          <div className="kami-chat-area relative flex min-h-0 flex-1 flex-col overflow-hidden min-w-0">
             {/* Messages */}
             <div
               ref={scrollContainerRef}
-              className="min-h-0 flex-1 overflow-y-auto px-4 py-3 space-y-3"
+              className="kami-messages-area min-h-0 flex-1 overflow-y-auto px-4 py-3 space-y-3"
               onScroll={handleScroll}
             >
               {messages.length ? (
@@ -3583,15 +3865,15 @@ const KamiPage = () => {
                 </>
               ) : (
                 /* Empty / Welcome state */
-                <div className="flex flex-col items-center justify-center h-full text-center px-4">
-                  <div className="flex size-16 items-center justify-center overflow-hidden rounded-2xl bg-ui-bg-subtle mb-4">
-                    <KamiLogo className="size-16" />
+                <div className="kami-welcome flex flex-col items-center justify-center h-full text-center px-4">
+                  <div className="flex size-16 items-center justify-center rounded-2xl bg-ui-tag-purple-bg mb-4">
+                    <Text size="large" weight="plus" className="text-ui-tag-purple-text !text-2xl">K</Text>
                   </div>
                   <Heading level="h2" className="!text-lg mb-1">Ask KAMI anything</Heading>
                   <Text size="small" className="text-ui-fg-subtle mb-6 max-w-md">
                     KAMI has full access to your Medusa store — products, orders, customers, inventory, and more.
                   </Text>
-                  <div className="flex flex-wrap justify-center gap-2 max-w-lg">
+                  <div className="kami-welcome-suggestions flex flex-wrap justify-center gap-2 max-w-lg">
 	                    {(dashboardSuggestions.length ? dashboardSuggestions : [
 	                      { label: "Sales report", prompt: "Create a sales report for today with revenue, orders, customers, and inventory risk.", tool: "commerce_dashboard", args: { days: 1, low_stock_threshold: 5 }, risk: "read" },
 	                      { label: "Recent orders", prompt: "Show recent orders and highlight anything that needs action.", tool: "operations_risk_report", args: { low_stock_threshold: 5 }, risk: "read" },
@@ -3642,10 +3924,10 @@ const KamiPage = () => {
             )}
 
             {/* Input area */}
-            <div className="shrink-0 border-t border-ui-border-base px-4 py-3">
+            <div className="kami-input-area shrink-0 border-t border-ui-border-base px-4 py-3">
               <div className="max-w-3xl mx-auto">
                 <div
-                  className={`rounded-xl border bg-ui-bg-base shadow-sm transition-colors focus-within:border-ui-border-interactive ${prompt ? "border-ui-border-interactive" : "border-ui-border-base"}`}
+                  className={`kami-input-composer rounded-xl border bg-ui-bg-base shadow-sm transition-colors focus-within:border-ui-border-interactive ${prompt ? "border-ui-border-interactive" : "border-ui-border-base"}`}
                   onKeyDownCapture={handleComposerKeyDown}
                 >
                   <textarea

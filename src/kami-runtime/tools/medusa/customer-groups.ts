@@ -1,6 +1,22 @@
-import { objectSchema, pagination, graph, graphById, stringArg, typedPayload } from "./shared"
+import { objectSchema, pagination, graph, graphById, stringArg, typedPayload, isObj, isNonEmptyStr, missingField } from "./shared"
 import { registerTool } from "../registry"
+import type { ArgValidationResult } from "../registry"
 import type { KamiCtx } from "../../types"
+
+const validateCreateCustomerGroup = (
+  args: Record<string, unknown>
+): ArgValidationResult | null => {
+  const group = args.customer_group
+  if (!isObj(group) || !isNonEmptyStr(group.name)) {
+    return missingField(
+      "create_customer_group",
+      ["customer_group.name"],
+      "create_customer_group requires a customer_group object with a non-empty name.",
+      "Provide customer_group.name (e.g. 'VIP')."
+    )
+  }
+  return null
+}
 
 export const registerCustomerGroupTools = () => {
   registerTool({
@@ -33,6 +49,7 @@ export const registerCustomerGroupTools = () => {
       { customer_group: { type: "object" } },
       ["customer_group"]
     ),
+    validate: validateCreateCustomerGroup,
     handler: async (args, ctx: KamiCtx) => {
       const { createCustomerGroupsWorkflow } = await import("@medusajs/core-flows")
       return await ctx.executor.runWorkflow(createCustomerGroupsWorkflow, {

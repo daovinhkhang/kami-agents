@@ -97,7 +97,7 @@ export const ensureDefaultSkills = async (kami: KamiModuleService) => {
     return
   }
 
-  const existing = await (kami as any).listKamiSkills(
+  const existing = await kami.listKamiSkills(
     { name: seedSkills.map((skill) => skill.name) },
     { take: seedSkills.length }
   )
@@ -105,7 +105,7 @@ export const ensureDefaultSkills = async (kami: KamiModuleService) => {
   const missing = seedSkills.filter((skill) => !existingNames.has(skill.name))
 
   if (missing.length) {
-    await (kami as any).createKamiSkills(
+    await kami.createKamiSkills(
       missing.map((skill) => ({
         ...skill,
         origin: "human",
@@ -120,7 +120,7 @@ export const ensureDefaultSkills = async (kami: KamiModuleService) => {
         metadata: {
           seed: true,
         },
-      }))
+      })) as unknown as Parameters<typeof kami.createKamiSkills>[0]
     )
   }
 

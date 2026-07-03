@@ -1,6 +1,22 @@
-import { objectSchema, pagination, graph, graphById, stringArg, typedPayload } from "./shared"
+import { objectSchema, pagination, graph, graphById, stringArg, typedPayload, isObj, isNonEmptyStr, missingField } from "./shared"
 import { registerTool } from "../registry"
+import type { ArgValidationResult } from "../registry"
 import type { KamiCtx } from "../../types"
+
+const validateCreateReturn = (
+  args: Record<string, unknown>
+): ArgValidationResult | null => {
+  const ret = args.return
+  if (!isObj(ret) || !isNonEmptyStr(ret.order_id)) {
+    return missingField(
+      "create_return",
+      ["return.order_id"],
+      "create_return requires a return object with a non-empty order_id.",
+      "Provide return.order_id. List the order first if you do not know its id."
+    )
+  }
+  return null
+}
 
 export const registerReturnTools = () => {
   registerTool({
@@ -33,6 +49,7 @@ export const registerReturnTools = () => {
       { return: { type: "object" } },
       ["return"]
     ),
+    validate: validateCreateReturn,
     handler: async (args, ctx: KamiCtx) => {
       const { beginReturnOrderWorkflow } = await import("@medusajs/core-flows")
       return await ctx.executor.runWorkflow(beginReturnOrderWorkflow, typedPayload(args, "return"))

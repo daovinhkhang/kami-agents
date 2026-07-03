@@ -71,8 +71,16 @@ export const registerDraftOrderTools = () => {
     ),
     validate: validateCreateDraftOrder,
     handler: async (args, ctx: KamiCtx) => {
-      const { updateDraftOrderWorkflow } = await import("@medusajs/core-flows")
-      return await ctx.executor.runWorkflow(updateDraftOrderWorkflow, typedPayload(args, "draft_order"))
+      // Draft orders are created via createOrderWorkflow with the draft flags
+      // set — there is no dedicated create-draft-order workflow. Mirrors the
+      // admin POST /draft-orders route.
+      const { createOrderWorkflow } = await import("@medusajs/core-flows")
+      const draft = typedPayload<Record<string, unknown>>(args, "draft_order")
+      return await ctx.executor.runWorkflow(createOrderWorkflow, {
+        ...draft,
+        status: "draft",
+        is_draft_order: true,
+      })
     },
   })
 

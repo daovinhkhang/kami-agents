@@ -1,6 +1,36 @@
-import { objectSchema, pagination, graph, graphById, stringArg, typedPayload } from "./shared"
+import { objectSchema, pagination, graph, graphById, stringArg, typedPayload, isNonEmptyStr, missingField } from "./shared"
 import { registerTool } from "../registry"
+import type { ArgValidationResult } from "../registry"
 import type { KamiCtx } from "../../types"
+
+const validateRefundPayment = (
+  args: Record<string, unknown>
+): ArgValidationResult | null => {
+  if (args.amount != null && !(Number(args.amount) > 0)) {
+    return missingField(
+      "refund_payment",
+      ["amount"],
+      "refund_payment amount must be a positive number when provided.",
+      "Omit amount to refund the full captured amount, or set amount to a value greater than 0."
+    )
+  }
+  return null
+}
+
+const validateCreatePaymentCollection = (
+  args: Record<string, unknown>
+): ArgValidationResult | null => {
+  const fields: string[] = []
+  if (!isNonEmptyStr(args.order_id)) fields.push("order_id")
+  if (!(Number(args.amount) > 0)) fields.push("amount")
+  if (!fields.length) return null
+  return missingField(
+    "create_payment_collection",
+    fields,
+    "create_payment_collection requires an order_id and a positive amount.",
+    "Set order_id and amount (greater than 0). List the order first if you do not know its id."
+  )
+}
 
 export const registerPaymentTools = () => {
   // --- Payments ---
@@ -49,6 +79,7 @@ export const registerPaymentTools = () => {
       { payment_id: { type: "string" }, amount: { type: "number" } },
       ["payment_id"]
     ),
+    validate: validateRefundPayment,
     handler: async (args, ctx: KamiCtx) => {
       const { refundPaymentWorkflow } = await import("@medusajs/core-flows")
       return await ctx.executor.runWorkflow(refundPaymentWorkflow, {
@@ -92,6 +123,7 @@ export const registerPaymentTools = () => {
       { order_id: { type: "string" }, amount: { type: "number" } },
       ["order_id", "amount"]
     ),
+    validate: validateCreatePaymentCollection,
     handler: async (args, ctx: KamiCtx) => {
       const { createOrderPaymentCollectionWorkflow } = await import("@medusajs/core-flows")
       return await ctx.executor.runWorkflow(createOrderPaymentCollectionWorkflow, {
