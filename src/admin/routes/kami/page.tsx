@@ -168,6 +168,17 @@ type ArtifactPayload = {
   data_sources: Array<{ tool: string; run_at: string; row_count: number }>
 }
 
+const KAMI_ICON_SRC = "/kami-icon.png"
+
+const KamiLogo = ({ className = "size-6" }: { className?: string }) => (
+  <img
+    src={KAMI_ICON_SRC}
+    alt="KAMI"
+    className={`${className} shrink-0 rounded-full object-cover`}
+    loading="eager"
+  />
+)
+
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
@@ -3536,8 +3547,8 @@ const KamiPage = () => {
               {sidebarOpen ? "Hide sessions" : "Sessions"}
             </Button>
             <div className="flex items-center gap-x-2">
-              <div className="flex size-7 items-center justify-center rounded-md bg-ui-tag-purple-bg">
-                <Text size="small" weight="plus" className="text-ui-tag-purple-text">K</Text>
+              <div className="flex size-8 items-center justify-center overflow-hidden rounded-lg bg-ui-bg-subtle">
+                <KamiLogo className="size-8" />
               </div>
               <div>
                 <Heading level="h2" className="!text-base">KAMI</Heading>
@@ -3866,8 +3877,8 @@ const KamiPage = () => {
               ) : (
                 /* Empty / Welcome state */
                 <div className="kami-welcome flex flex-col items-center justify-center h-full text-center px-4">
-                  <div className="flex size-16 items-center justify-center rounded-2xl bg-ui-tag-purple-bg mb-4">
-                    <Text size="large" weight="plus" className="text-ui-tag-purple-text !text-2xl">K</Text>
+                  <div className="flex size-20 items-center justify-center overflow-hidden rounded-2xl bg-ui-bg-subtle mb-4">
+                    <KamiLogo className="size-20" />
                   </div>
                   <Heading level="h2" className="!text-lg mb-1">Ask KAMI anything</Heading>
                   <Text size="small" className="text-ui-fg-subtle mb-6 max-w-md">
