@@ -1,0 +1,1 @@
+import{u as s,d as a,r as n,j as o,O as r}from"./index-rbFYLqGz.js";var p=()=>{const t=s(),e=a();return n.useEffect(()=>{e.pathname==="/settings"&&t("/settings/store",{replace:!0})},[e.pathname,t]),o.jsx(r,{})};export{p as Component};
