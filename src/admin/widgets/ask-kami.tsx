@@ -2,8 +2,9 @@
 
 import { defineWidgetConfig } from "@medusajs/admin-sdk"
 import { Button, Container, Heading, Text } from "@medusajs/ui"
+import kamiIcon from "../routes/kami/kami-icon.png"
 
-const KAMI_ICON_SRC = "/kami-icon.png"
+const KAMI_ICON_SRC = kamiIcon
 
 const AskKamiWidget = (props: any) => {
   const recordId = props?.data?.id ?? props?.id

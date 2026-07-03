@@ -36,6 +36,26 @@ export const POST = async (
   const kami = resolveKami(req)
   const actorId = req.auth_context?.actor_id
 
+  // If the client disconnects mid-turn (closes tab, navigates away), we must
+  // NOT abort generation — the runTurn generator still has to run to completion
+  // so every message (final answer included) gets persisted. Otherwise a
+  // disconnect after tool results but before the final answer leaves the
+  // session with only tool cards and no assistant text on reload.
+  let clientGone = false
+  req.on("close", () => {
+    clientGone = true
+  })
+
+  // Writing to a dead socket throws; swallow it so the generator keeps draining.
+  const safeWrite = (chunk: string) => {
+    if (clientGone) return
+    try {
+      res.write(chunk)
+    } catch {
+      clientGone = true
+    }
+  }
+
   for await (const event of runTurn(
     {
       sessionId: body.session_id,
@@ -49,8 +69,10 @@ export const POST = async (
       kami,
     }
   )) {
-    writeSse(res.write.bind(res), event)
+    writeSse(safeWrite, event)
   }
 
-  res.end()
+  if (!clientGone) {
+    res.end()
+  }
 }

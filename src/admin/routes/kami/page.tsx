@@ -4,1965 +4,50 @@ import { defineRouteConfig } from "@medusajs/admin-sdk"
 import {
   Badge,
   Button,
-  Container,
-  Copy,
-  Drawer,
   DropdownMenu,
   Heading,
   IconButton,
-  Input,
   Text,
-  Textarea,
   Tooltip,
   TooltipProvider,
   toast,
 } from "@medusajs/ui"
+import { CogSixTooth, PencilSquare, XMark } from "@medusajs/icons"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import type {
+  ChatMessage,
+  ContentPart,
+  QuickAction,
+  Row,
+  TabId,
+  TraceStep,
+  UiCommand,
+  VoiceConfig,
+  VoiceState,
+} from "./types"
+import { deleteJson, getJson, patchJson, postJson } from "./api"
 import {
-  ChevronDownMini,
-  CircleStack,
-  CogSixTooth,
-  CommandLine,
-  DocumentText,
-  ExclamationCircle,
-  LightBulb,
-  MagnifyingGlass,
-  PencilSquare,
-  SquaresPlus,
-} from "@medusajs/icons"
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
-
-/* ------------------------------------------------------------------ */
-/*  Types                                                              */
-/* ------------------------------------------------------------------ */
-
-type Row = Record<string, any>
-
-type ChatMessage = {
-  role: "user" | "assistant" | "tool" | "system"
-  content: string
-  tool_calls?: Row[]
-  content_parts?: ContentPart[]
-  metadata?: Row
-  created_at?: string
-}
-
-type ContentPart =
-  | { type: "text"; text: string }
-  | { type: "think"; think: string }
-  | { type: "tool_call"; tool_name: string; args?: Row; result?: unknown; risk?: string }
-  | { type: "trace"; steps: TraceStep[] }
-  | { type: "ui_command"; command: UiCommand }
-  | { type: "draft"; draft: CommerceDraftPayload; artifact_id?: string }
-  | { type: "error"; error: string }
-
-type TabId = "approvals" | "audit" | "memory" | "skills" | "cron" | "gateways" | "settings" | "autonomy" | "evals"
-
-type TraceStep = {
-  index: number
-  tool: string
-  status: "running" | "done" | "error"
-  label: string
-}
-
-type QuickAction = {
-  label: string
-  description?: string
-  kind: "create" | "export" | "schedule" | "inspect" | "fix" | "report" | "draft"
-  tool: string
-  args: Row
-  risk: string
-  confirm_required?: boolean
-  artifact_id?: string
-  session_id?: string
-}
-
-type UiCommand = {
-  action:
-    | "open_panel"
-    | "open_artifact"
-    | "open_drawer"
-    | "open_draft"
-    | "focus_record"
-    | "highlight_issue"
-    | "request_confirmation"
-  panel?: "report" | "draft" | "record" | "debug" | "approvals" | "memory" | "cron" | "settings" | "autonomy" | "evals"
-  tab?: string
-  artifact_id?: string
-  draft_id?: string
-  record_type?: "order" | "product" | "customer" | "inventory" | "promotion" | "region" | "other"
-  record_id?: string
-  title?: string
-  reason?: string
-  severity?: "info" | "warning" | "critical"
-  metadata?: Row
-}
-
-type CommerceDraftPayload = {
-  version: "1.0"
-  draft_type:
-    | "product"
-    | "order"
-    | "promotion"
-    | "customer"
-    | "campaign"
-    | "inventory_adjustment"
-    | "shipping_fix"
-    | "schedule"
-    | "report_template"
-    | "custom"
-  title: string
-  description?: string
-  status: "pending" | "executed" | "dismissed" | "approval_required" | "error"
-  target_tool: string
-  args: Row
-  risk: "read" | "safe" | "mutating" | "destructive"
-  confirm_required: boolean
-  created_at: string
-  updated_at?: string
-  executed_at?: string
-  execution_result?: unknown
-  timezone: "Asia/Ho_Chi_Minh"
-  utc_offset: "UTC+7"
-  metadata?: Row
-}
-
-type VoiceConfig = {
-  provider: "openai"
-  enabled: boolean
-  modes: {
-    send: boolean
-    realtime: boolean
-  }
-  auto_detect_language: boolean
-  model: string
-  realtime_model: string
-  realtime_transcription_model: string
-  sample_rate: number
-  realtime: {
-    enabled: boolean
-    ws_url_base?: string | null
-    port?: number
-    model?: string
-    transcription_model?: string
-    auto_detect_language?: boolean
-    error?: string | null
-  }
-}
-
-type VoiceState = "idle" | "recording" | "transcribing" | "sending" | "speaking" | "connecting" | "live"
-
-type ArtifactSection =
-  | { type: "kpi"; title: string; cards: Array<{ label: string; value: string; trend?: string; delta?: string }> }
-  | { type: "table"; title: string; columns: Array<{ key: string; label: string; align?: string }>; rows: Row[]; total_rows: number }
-  | { type: "chart"; title: string; chart_type: string; data: { labels: string[]; datasets: Array<{ label: string; values: number[] }> } }
-  | { type: "text"; title?: string; content: string }
-
-type ArtifactPayload = {
-  version: "1.0"
-  title: string
-  generated_at: string
-  timezone: string
-  utc_offset: string
-  date_range: { from: string; to: string; label: string }
-  sections: ArtifactSection[]
-  data_sources: Array<{ tool: string; run_at: string; row_count: number }>
-}
-
-const KAMI_ICON_SRC = "/kami-icon.png"
-
-const KamiLogo = ({ className = "size-6" }: { className?: string }) => (
-  <img
-    src={KAMI_ICON_SRC}
-    alt="KAMI"
-    className={`${className} shrink-0 rounded-full object-cover`}
-    loading="eager"
-  />
-)
-
-/* ------------------------------------------------------------------ */
-/*  Helpers                                                            */
-/* ------------------------------------------------------------------ */
-
-const getJson = async <T,>(path: string): Promise<T> => {
-  const r = await fetch(path, { credentials: "include" })
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-  return r.json()
-}
-
-const postJson = async <T,>(path: string, body: Row): Promise<T> => {
-  const r = await fetch(path, {
-    method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-  return r.json()
-}
-
-const patchJson = async <T,>(path: string, body: Row): Promise<T> => {
-  const r = await fetch(path, {
-    method: "PATCH",
-    credentials: "include",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  })
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-  return r.json()
-}
-
-const deleteJson = async <T,>(path: string): Promise<T> => {
-  const r = await fetch(path, {
-    method: "DELETE",
-    credentials: "include",
-  })
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`)
-  return r.json()
-}
-
-const compact = (v: unknown, len = 120) => {
-  const t = typeof v === "string" ? v : JSON.stringify(v ?? null)
-  return t.length > len ? `${t.slice(0, len)}...` : t
-}
-
-const safeJson = (value: unknown, spaces = 2) => {
-  try {
-    return JSON.stringify(value ?? {}, null, spaces)
-  } catch {
-    return "{}"
-  }
-}
-
-const recordHref = (type?: string, id?: string) => {
-  if (!type || !id) return null
-
-  const encoded = encodeURIComponent(id)
-  switch (type) {
-    case "order":
-      return `/app/orders/${encoded}`
-    case "product":
-      return `/app/products/${encoded}`
-    case "customer":
-      return `/app/customers/${encoded}`
-    case "inventory":
-      return `/app/inventory?item_id=${encoded}`
-    case "promotion":
-      return `/app/promotions/${encoded}`
-    case "region":
-      return `/app/settings/regions/${encoded}`
-    default:
-      return null
-  }
-}
-
-const getBestSupportedAudioMimeType = () => {
-  const types = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-    "audio/ogg;codecs=opus",
-    "audio/ogg",
-    "audio/wav",
-  ]
-
-  for (const type of types) {
-    if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type)) {
-      return type
-    }
-  }
-
-  return "audio/webm"
-}
-
-const blobToBase64 = (blob: Blob) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      const value = String(reader.result ?? "")
-      resolve(value.includes(",") ? value.split(",")[1] : value)
-    }
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(blob)
-  })
-
-const appendTranscript = (current: string, transcript: string) => {
-  const text = transcript.trim()
-  if (!text) return current
-  if (!current.trim()) return text
-  return `${current.trimEnd()} ${text}`
-}
-
-const linear16FromFloat32 = (
-  input: Float32Array,
-  inputSampleRate: number,
-  outputSampleRate: number
-) => {
-  const ratio = inputSampleRate / outputSampleRate
-  const length = Math.max(1, Math.floor(input.length / ratio))
-  const output = new Int16Array(length)
-
-  for (let i = 0; i < length; i++) {
-    const sample = Math.max(-1, Math.min(1, input[Math.floor(i * ratio)] ?? 0))
-    output[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff
-  }
-
-  return output.buffer
-}
-
-const extractRealtimeTranscript = (payload: Row) => {
-  if (payload?.type === "conversation.item.input_audio_transcription.delta") {
-    return {
-      transcript: String(payload.delta ?? ""),
-      isFinal: false,
-    }
-  }
-
-  if (payload?.type === "conversation.item.input_audio_transcription.completed") {
-    return {
-      transcript: String(payload.transcript ?? "").trim(),
-      isFinal: true,
-    }
-  }
-
-  return {
-    transcript: "",
-    isFinal: false,
-  }
-}
-
-const detectSpeechLanguage = (text: string) => {
-  if (/[ăâđêôơưáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ]/i.test(text)) {
-    return "vi-VN"
-  }
-
-  return "en-US"
-}
-
-const cleanSpeechText = (text: string) =>
-  text
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/[#*_`>|]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 1800)
-
-const formatDate = (v?: string | Date | null) => {
-  if (!v) return "-"
-  return new Date(v).toLocaleString("vi-VN", {
-    timeZone: "Asia/Ho_Chi_Minh",
-    hour12: false,
-  })
-}
-
-const relativeTime = (v?: string | Date | null): string => {
-  if (!v) return ""
-  const ms = Date.now() - new Date(v).getTime()
-  const sec = Math.floor(ms / 1000)
-  if (sec < 60) return "just now"
-  const min = Math.floor(sec / 60)
-  if (min < 60) return `${min}m ago`
-  const hr = Math.floor(min / 60)
-  if (hr < 24) return `${hr}h ago`
-  const days = Math.floor(hr / 24)
-  if (days < 7) return `${days}d ago`
-  return formatDate(v)
-}
-
-const parseSseBlock = (block: string) => {
-  const data = block.split("\n").find((l) => l.startsWith("data: "))?.slice(6)
-  if (!data) return null
-  return JSON.parse(data)
-}
-
-const riskColor = (risk?: string): "green" | "red" | "blue" | "orange" | "grey" | "purple" => {
-  switch (risk) {
-    case "read": return "green"
-    case "destructive": return "red"
-    case "mutating": return "orange"
-    case "safe": return "blue"
-    default: return "grey"
-  }
-}
-
-const toolLabel = (name: string) => name.replace(/_/g, " ")
-
-// Map a tool name to a clean display title + an icon, opencode-style.
-// The title is short and human; the target (file/query/etc) is shown separately.
-const toolIcon = (name: string) => {
-  const n = name.toLowerCase()
-  if (/(search|find|list|query|lookup|get|read|fetch|inspect)/.test(n)) return MagnifyingGlass
-  if (/(report|document|export|template|artifact)/.test(n)) return DocumentText
-  if (/(stock|inventory|product|catalog|price|order|sale)/.test(n)) return CircleStack
-  if (/(create|add|new|draft|schedule|promotion|campaign)/.test(n)) return SquaresPlus
-  if (/(setting|config|update|edit|adjust|fix)/.test(n)) return CogSixTooth
-  if (/(run|exec|command|shell|workflow)/.test(n)) return CommandLine
-  return CircleStack
-}
-
-// Pull the most meaningful "target" out of tool args for the title line,
-// mirroring opencode's label() priority list.
-const toolTarget = (args?: Row): string | undefined => {
-  if (!args) return undefined
-  const keys = ["title", "name", "query", "q", "id", "sku", "email", "path", "file_path", "url", "type"]
-  for (const key of keys) {
-    const value = args[key]
-    if (typeof value === "string" && value.length > 0) return value
-    if (typeof value === "number") return String(value)
-  }
-  return undefined
-}
-
-// Flatten remaining args into short key=value chips (skipping the target keys),
-// like opencode's args() helper. Caps to keep the header tidy.
-const toolArgChips = (args?: Row): string[] => {
-  if (!args) return []
-  const skip = new Set(["title", "name", "query", "q", "id", "sku", "email", "path", "file_path", "url", "type"])
-  return Object.entries(args)
-    .filter(([key]) => !skip.has(key))
-    .flatMap(([key, value]) => {
-      if (value == null) return []
-      if (typeof value === "string") return [`${key}=${value.length > 32 ? `${value.slice(0, 32)}...` : value}`]
-      if (typeof value === "number" || typeof value === "boolean") return [`${key}=${value}`]
-      return [`${key}={…}`]
-    })
-    .slice(0, 4)
-}
-
-const getSessionMeta = (session: Row) => session.metadata ?? {}
-
-const getSessionTags = (session: Row): string[] => {
-  const tags = getSessionMeta(session).tags
-
-  return Array.isArray(tags) ? tags : []
-}
-
-const getMemoryCategory = (memory: Row) =>
-  memory.metadata?.category ?? memory.type ?? "factual"
-
-const isMemoryDisabled = (memory: Row) => Boolean(memory.metadata?.disabled)
-
-/* ------------------------------------------------------------------ */
-/*  CSS Animations (injected once)                                      */
-/* ------------------------------------------------------------------ */
-
-const injectStyles = () => {
-  if (typeof document === "undefined") return
-  const id = "kami-animations"
-  if (document.getElementById(id)) return
-  const style = document.createElement("style")
-  style.id = id
-  style.textContent = `
-    @keyframes kami-fadeIn {
-      from { opacity: 0; transform: translateY(4px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes kami-pulse-dot {
-      0%, 100% { opacity: 0.2; }
-      50% { opacity: 1; }
-    }
-    @keyframes kami-stream-caret {
-      0%, 45% { opacity: 1; }
-      46%, 100% { opacity: 0; }
-    }
-    .kami-fade-in {
-      animation: kami-fadeIn 0.3s ease-out;
-    }
-    .kami-msg-enter {
-      animation: kami-fadeIn 0.25s ease-out;
-    }
-    .kami-thinking-dot { animation: kami-pulse-dot 1.4s infinite ease-in-out; }
-    .kami-thinking-dot:nth-child(2) { animation-delay: 0.2s; }
-    .kami-thinking-dot:nth-child(3) { animation-delay: 0.4s; }
-    .kami-stream-caret {
-      display: inline-block;
-      width: 2px;
-      height: 1em;
-      margin-left: 3px;
-      border-radius: 999px;
-      background: currentColor;
-      animation: kami-stream-caret 1s infinite;
-      vertical-align: -0.12em;
-    }
-    @keyframes kami-slideInRight {
-      from { transform: translateX(100%); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
-    }
-    @keyframes kami-slideOutRight {
-      from { transform: translateX(0); opacity: 1; }
-      to { transform: translateX(100%); opacity: 0; }
-    }
-    @keyframes kami-slideInLeft {
-      from { transform: translateX(-100%); opacity: 0; }
-      to { transform: translateX(0); opacity: 1; }
-    }
-    @keyframes kami-slideOutLeft {
-      from { transform: translateX(0); opacity: 1; }
-      to { transform: translateX(-100%); opacity: 0; }
-    }
-    .kami-panel-slide-in {
-      animation: kami-slideInRight 0.25s ease-out;
-    }
-    .kami-panel-slide-out {
-      animation: kami-slideOutRight 0.25s ease-in forwards;
-    }
-    @keyframes kami-spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-    .kami-spinner {
-      display: inline-block;
-      width: 12px;
-      height: 12px;
-      border: 2px solid rgba(99, 102, 241, 0.22);
-      border-right-color: #6366f1;
-      border-top-color: #6366f1;
-      border-radius: 50%;
-      animation: kami-spin 0.8s linear infinite;
-      flex-shrink: 0;
-      box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.08);
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .kami-spinner { animation: none; }
-      .kami-panel-slide-in, .kami-panel-slide-out { animation: none; }
-    }
-
-    /* ===== MOBILE RESPONSIVE (<768px) ===== */
-    @media (max-width: 767px) {
-      /* Top bar — compact */
-      .kami-topbar { padding: 6px 10px !important; gap: 4px !important; flex-wrap: wrap !important; }
-      .kami-topbar-left { gap: 6px !important; }
-      .kami-topbar-right {
-        gap: 2px !important;
-        overflow-x: auto;
-        flex-wrap: nowrap;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
-        padding-bottom: 4px;
-      }
-      .kami-topbar-right::-webkit-scrollbar { display: none; }
-      .kami-topbar .kami-topbar-desktop-btn { display: none !important; }
-      .kami-topbar .kami-hamburger-btn { display: inline-flex !important; }
-
-      /* Sidebar overlay */
-      .kami-sidebar-overlay {
-        position: fixed !important;
-        inset: 0;
-        z-index: 50;
-        background: rgba(0,0,0,0.4);
-      }
-      .kami-sidebar-panel {
-        position: fixed !important;
-        top: 0; left: 0; bottom: 0;
-        width: 280px !important;
-        max-width: 85vw;
-        z-index: 51;
-        box-shadow: 4px 0 24px rgba(0,0,0,0.15);
-      }
-      .kami-sidebar-panel.kami-slide-in-left {
-        animation: kami-slideInLeft 0.2s ease-out;
-      }
-      .kami-sidebar-panel.kami-slide-out-left {
-        animation: kami-slideOutLeft 0.2s ease-in forwards;
-      }
-
-      /* Right panels — fullscreen overlay on mobile */
-      .kami-right-panel {
-        position: fixed !important;
-        inset: 0 !important;
-        width: 100vw !important;
-        min-width: 100vw !important;
-        z-index: 40;
-        border-left: none !important;
-      }
-      .kami-right-panel .kami-panel-slide-in {
-        animation: kami-slideInRight 0.2s ease-out;
-      }
-      .kami-right-panel .kami-panel-slide-out {
-        animation: kami-slideOutRight 0.2s ease-in forwards;
-      }
-
-      /* Chat area */
-      .kami-chat-area { padding-left: 8px !important; padding-right: 8px !important; }
-      .kami-messages-area { padding: 8px !important; }
-
-      /* Message bubbles — wider on mobile */
-      .kami-msg-bubble {
-        max-width: 92% !important;
-      }
-
-      /* Execution trace — compact */
-      .kami-execution-trace .kami-trace-summary { gap: 2px !important; }
-      .kami-execution-trace .kami-trace-steps { flex-wrap: wrap !important; }
-
-      /* Input area */
-      .kami-input-area { padding: 8px 10px !important; }
-      .kami-input-composer { border-radius: 12px !important; }
-
-      /* Welcome state */
-      .kami-welcome { padding: 16px !important; }
-      .kami-welcome-suggestions { gap: 6px !important; }
-      .kami-welcome-suggestions button { padding: 6px 10px !important; font-size: 11px !important; }
-
-      /* Drawer — Medusa's Drawer adapts but we ensure scroll */
-      [data-kami-drawer-body] { max-height: 70vh !important; }
-
-      /* Bottom safe-area for phones with notch */
-      .kami-input-area {
-        padding-bottom: max(8px, env(safe-area-inset-bottom, 8px)) !important;
-      }
-
-      /* Touch-friendly targets */
-      .kami-touch-btn {
-        min-width: 36px !important;
-        min-height: 36px !important;
-        padding: 6px 10px !important;
-        font-size: 12px !important;
-      }
-    }
-
-    /* ===== TABLET (768px–1023px) ===== */
-    @media (min-width: 768px) and (max-width: 1023px) {
-      .kami-topbar-right { gap: 2px !important; }
-      .kami-topbar .kami-topbar-desktop-btn { font-size: 10px !important; padding: 4px 6px !important; }
-      .kami-right-panel { width: 360px !important; min-width: 360px !important; }
-    }
-  `
-  document.head.appendChild(style)
-}
-
-/* ------------------------------------------------------------------ */
-/*  Markdown Components                                                */
-/* ------------------------------------------------------------------ */
-
-/** GFM-capable markdown renderer (react-markdown + remark-gfm) styled with
- *  Medusa UI tokens. Replaces the former hand-rolled parser, which mangled
- *  tables with empty cells, nested lists, nested emphasis, h4-h6, blockquotes,
- *  strikethrough, and alignment rows. */
-const CodeBlock = ({ code, lang }: { code: string; lang?: string }) => (
-  <div className="group relative my-3 rounded-lg border border-ui-border-base bg-ui-bg-subtle">
-    <div className="flex items-center justify-between border-b border-ui-border-base px-3 py-1.5">
-      <Text size="xsmall" className="text-ui-fg-muted font-mono">{lang || "code"}</Text>
-      <Copy content={code} />
-    </div>
-    <pre className="overflow-x-auto p-3">
-      <code className="font-mono text-xs whitespace-pre text-ui-fg-base">{code}</code>
-    </pre>
-  </div>
-)
-
-const markdownComponents = {
-  h1: ({ children }: any) => <div className="text-lg font-bold text-ui-fg-base mt-3 mb-1">{children}</div>,
-  h2: ({ children }: any) => <div className="text-base font-semibold text-ui-fg-base mt-3 mb-1">{children}</div>,
-  h3: ({ children }: any) => <div className="text-sm font-semibold text-ui-fg-base mt-3 mb-1">{children}</div>,
-  h4: ({ children }: any) => <div className="text-sm font-semibold text-ui-fg-base mt-2 mb-1">{children}</div>,
-  h5: ({ children }: any) => <div className="text-xs font-semibold text-ui-fg-subtle mt-2 mb-0.5">{children}</div>,
-  h6: ({ children }: any) => <div className="text-xs font-semibold text-ui-fg-muted mt-2 mb-0.5">{children}</div>,
-  p: ({ children }: any) => <p className="text-sm text-ui-fg-base my-1 leading-relaxed">{children}</p>,
-  ul: ({ children }: any) => <ul className="list-disc pl-5 my-1.5 space-y-0.5 text-sm text-ui-fg-base">{children}</ul>,
-  ol: ({ children }: any) => <ol className="list-decimal pl-5 my-1.5 space-y-0.5 text-sm text-ui-fg-base">{children}</ol>,
-  li: ({ children }: any) => <li className="text-sm text-ui-fg-base">{children}</li>,
-  strong: ({ children }: any) => <strong className="font-semibold">{children}</strong>,
-  em: ({ children }: any) => <em>{children}</em>,
-  del: ({ children }: any) => <del className="text-ui-fg-muted">{children}</del>,
-  a: ({ href, children }: any) => (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="text-ui-fg-interactive underline">
-      {children}
-    </a>
-  ),
-  blockquote: ({ children }: any) => (
-    <blockquote className="my-2 border-l-2 border-ui-border-strong pl-3 text-sm italic text-ui-fg-subtle">
-      {children}
-    </blockquote>
-  ),
-  hr: () => <hr className="my-3 border-ui-border-base" />,
-  table: ({ children }: any) => (
-    <div className="overflow-x-auto my-2">
-      <table className="min-w-full border-collapse border border-ui-border-base text-xs">{children}</table>
-    </div>
-  ),
-  thead: ({ children }: any) => <thead>{children}</thead>,
-  th: ({ children, style }: any) => (
-    <th style={style} className="border border-ui-border-base bg-ui-bg-subtle px-2 py-1 font-semibold text-ui-fg-base">{children}</th>
-  ),
-  td: ({ children, style }: any) => (
-    <td style={style} className="border border-ui-border-base px-2 py-1 text-ui-fg-base">{children}</td>
-  ),
-  code: ({ inline, className, children }: any) => {
-    const text = String(children ?? "").replace(/\n$/, "")
-    const langMatch = /language-(\w+)/.exec(className ?? "")
-    // react-markdown v10 drops the `inline` flag; a fenced block wraps its code
-    // in a <pre>, so we detect a block by the presence of a language class or a
-    // trailing newline. Everything else renders as inline code.
-    const isBlock = Boolean(langMatch) || text.includes("\n")
-    if (!inline && isBlock) {
-      return <CodeBlock code={text} lang={langMatch?.[1]} />
-    }
-    return <code className="rounded bg-ui-bg-subtle px-1 py-0.5 font-mono text-xs text-ui-fg-base">{children}</code>
-  },
-  pre: ({ children }: any) => <>{children}</>,
-}
-
-// react-markdown v10 and remark-gfm v4 are ESM-only. Under tsc's Node16 module
-// mode this file is treated as CommonJS, so a static import is rejected. A lazy
-// dynamic import satisfies both tsc and the Vite bundler, and yields a
-// plain-text fallback while the chunk loads.
-const LazyMarkdown = lazy(async () => {
-  const [{ default: ReactMarkdown }, { default: remarkGfm }] = await Promise.all([
-    import("react-markdown"),
-    import("remark-gfm"),
-  ])
-  return {
-    default: ({ text }: { text: string }) => (
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-        {text}
-      </ReactMarkdown>
-    ),
-  }
-})
-
-const KamiMarkdown = ({ text }: { text: string }) => (
-  <Suspense fallback={<p className="text-sm text-ui-fg-base my-1 whitespace-pre-wrap">{text}</p>}>
-    <LazyMarkdown text={text} />
-  </Suspense>
-)
-
-/* ------------------------------------------------------------------ */
-/*  Message Components                                                 */
-/* ------------------------------------------------------------------ */
-
-const updateToolResultParts = (
-  parts: ContentPart[],
-  call: Row | undefined,
-  result: unknown,
-  risk?: string
-): ContentPart[] => {
-  const next = [...parts]
-  const idx = [...next]
-    .reverse()
-    .findIndex((p) => p.type === "tool_call" && p.tool_name === (call?.name ?? ""))
-
-  if (idx === -1) return next
-
-  const realIdx = next.length - 1 - idx
-  const part = next[realIdx] as ContentPart & { type: "tool_call" }
-  next[realIdx] = {
-    ...part,
-    args: part.args ?? call?.arguments,
-    result,
-    risk: risk ?? part.risk ?? "safe",
-  }
-
-  return next
-}
-
-// Stable empty array so sessions with no messages don't re-render on every
-// state change (a fresh `[]` literal would break referential equality).
-const EMPTY_MESSAGES: ChatMessage[] = []
-
-const mergeToolMessages = (messages: ChatMessage[]) => {
-  const merged: ChatMessage[] = []
-
-  for (const msg of messages) {
-    const toolPart = msg.content_parts?.find((p) => p.type === "tool_call") as
-      | (ContentPart & { type: "tool_call" })
-      | undefined
-
-    if (msg.role === "tool" && toolPart) {
-      const assistantIdx = [...merged]
-        .reverse()
-        .findIndex((m) => m.role === "assistant" && m.content_parts?.some((p) => p.type === "tool_call" && p.tool_name === toolPart.tool_name))
-
-      if (assistantIdx !== -1) {
-        const realIdx = merged.length - 1 - assistantIdx
-        const assistant = merged[realIdx]
-        merged[realIdx] = {
-          ...assistant,
-          content_parts: updateToolResultParts(
-            assistant.content_parts ?? [],
-            { name: toolPart.tool_name, arguments: toolPart.args },
-            toolPart.result ?? msg.content,
-            toolPart.risk
-          ),
-        }
-      }
-
-      continue
-    }
-
-    merged.push(msg)
-  }
-
-  return merged
-}
-
-// A small chevron that rotates when its collapsible is open.
-const Chevron = ({ open }: { open: boolean }) => (
-  <ChevronDownMini
-    className={`shrink-0 text-ui-fg-muted transition-transform duration-150 ${open ? "" : "-rotate-90"}`}
-  />
-)
-
-// Collapsible "Thinking" block — the model's reasoning, rendered as markdown.
-// Mirrors opencode's reasoning card: quiet by default, expandable.
-const ThinkingBlock = ({ thought, active }: { thought: string; active?: boolean }) => {
-  const [open, setOpen] = useState(false)
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-ui-border-base bg-ui-bg-subtle kami-fade-in">
-      <button
-        type="button"
-        className="flex w-full items-center gap-x-2 px-3 py-2 text-left hover:bg-ui-bg-base-hover"
-        onClick={() => setOpen(!open)}
-      >
-        <LightBulb className="shrink-0 text-ui-fg-muted" />
-        <Text size="xsmall" weight="plus" className="text-ui-fg-subtle">
-          {active ? "Thinking" : "Thought"}
-        </Text>
-        {active && (
-          <span className="flex gap-0.5">
-            <span className="inline-block size-1 rounded-full bg-ui-fg-muted kami-thinking-dot" />
-            <span className="inline-block size-1 rounded-full bg-ui-fg-muted kami-thinking-dot" />
-            <span className="inline-block size-1 rounded-full bg-ui-fg-muted kami-thinking-dot" />
-          </span>
-        )}
-        <span className="ml-auto">
-          <Chevron open={open} />
-        </span>
-      </button>
-      {open && (
-        <div className="border-t border-ui-border-base px-3 py-2.5">
-          <Text
-            size="xsmall"
-            className="max-h-64 overflow-y-auto whitespace-pre-wrap leading-relaxed text-ui-fg-subtle"
-          >
-            {thought}
-          </Text>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// A single tool call rendered as a collapsible card, opencode-style:
-// icon + clean title + target + arg chips in the header; args/result in the body.
-const ToolCard = ({
-  tool,
-  active,
-}: {
-  tool: ContentPart & { type: "tool_call" }
-  active?: boolean
-}) => {
-  const pending = tool.result === undefined
-  const running = Boolean(active && pending)
-  const [open, setOpen] = useState(false)
-  const Icon = toolIcon(tool.tool_name)
-  const target = toolTarget(tool.args)
-  const chips = toolArgChips(tool.args)
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-ui-border-base bg-ui-bg-base kami-fade-in">
-      <button
-        type="button"
-        className="flex w-full items-center gap-x-2 px-3 py-2 text-left hover:bg-ui-bg-base-hover"
-        onClick={() => setOpen(!open)}
-      >
-        {running ? (
-          <span className="kami-spinner" />
-        ) : (
-          <Icon className="shrink-0 text-ui-fg-subtle" />
-        )}
-        <div className="flex min-w-0 flex-1 items-center gap-x-2">
-          <Text size="xsmall" weight="plus" className="shrink-0 text-ui-fg-base">
-            {toolLabel(tool.tool_name)}
-          </Text>
-          {target && (
-            <Text size="xsmall" className="truncate font-mono text-ui-fg-subtle">
-              {target}
-            </Text>
-          )}
-          {chips.slice(0, 2).map((chip, i) => (
-            <span
-              key={i}
-              className="hidden shrink-0 rounded bg-ui-bg-subtle px-1.5 py-0.5 font-mono text-[10px] text-ui-fg-muted sm:inline"
-            >
-              {chip}
-            </span>
-          ))}
-        </div>
-        <Badge size="2xsmall" color={riskColor(tool.risk)}>
-          {tool.risk ?? "safe"}
-        </Badge>
-        {running && (
-          <Text size="xsmall" className="text-ui-fg-interactive">
-            running
-          </Text>
-        )}
-        <Chevron open={open} />
-      </button>
-      {open && (
-        <div className="space-y-2 border-t border-ui-border-base px-3 py-2.5">
-          {tool.args && Object.keys(tool.args).length > 0 && (
-            <div>
-              <Text size="xsmall" weight="plus" className="mb-1 text-ui-fg-muted">
-                Input
-              </Text>
-              <pre className="max-h-48 overflow-auto rounded bg-ui-bg-subtle px-2.5 py-2 font-mono text-[11px] leading-relaxed text-ui-fg-subtle">
-                {safeJson(tool.args)}
-              </pre>
-            </div>
-          )}
-          {!pending && (
-            <div>
-              <Text size="xsmall" weight="plus" className="mb-1 text-ui-fg-muted">
-                Result
-              </Text>
-              <pre className="max-h-64 overflow-auto rounded bg-ui-bg-subtle px-2.5 py-2 font-mono text-[11px] leading-relaxed text-ui-fg-subtle">
-                {typeof tool.result === "string" ? tool.result : safeJson(tool.result)}
-              </pre>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// Renders the reasoning + tool timeline for an assistant turn as a flat stack
-// of cards (thinking first, then each tool), matching opencode's clean layout.
-const ExecutionTrace = ({
-  thought,
-  tools,
-  isStreaming,
-}: {
-  thought?: string
-  tools: Array<ContentPart & { type: "tool_call" }>
-  isStreaming?: boolean
-}) => {
-  const active = Boolean(isStreaming && (thought || tools.some((tool) => tool.result === undefined)))
-
-  if (!thought && tools.length === 0) return null
-
-  return (
-    <div className="my-1.5 w-full space-y-1.5">
-      {thought && <ThinkingBlock thought={thought} active={active && !tools.length} />}
-      {tools.map((tool, i) => (
-        <ToolCard key={`${tool.tool_name}-${i}`} tool={tool} active={active} />
-      ))}
-    </div>
-  )
-}
-
-const AssistantLoading = () => (
-  <div className="flex items-center gap-x-1.5 py-1.5">
-    <span className="inline-block size-1.5 rounded-full bg-ui-fg-muted kami-thinking-dot" />
-    <span className="inline-block size-1.5 rounded-full bg-ui-fg-muted kami-thinking-dot" />
-    <span className="inline-block size-1.5 rounded-full bg-ui-fg-muted kami-thinking-dot" />
-  </div>
-)
-
-// Dedicated error card with a copy button, opencode's ToolErrorCard-style.
-const ErrorBlock = ({ error }: { error: string }) => {
-  const cleaned = error.replace(/^Error:\s*/, "").trim()
-  const [head, ...restParts] = cleaned.split(": ")
-  const hasSplit = restParts.length > 0
-  const subtitle = hasSplit ? head.trim() : "Failed"
-  const body = hasSplit ? restParts.join(": ").trim() : cleaned
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-ui-tag-red-border bg-ui-tag-red-bg kami-fade-in">
-      <div className="flex items-start gap-x-2 px-3 py-2">
-        <ExclamationCircle className="mt-0.5 shrink-0 text-ui-tag-red-icon" />
-        <div className="min-w-0 flex-1">
-          <Text size="xsmall" weight="plus" className="text-ui-tag-red-text">
-            {subtitle}
-          </Text>
-          {body && (
-            <Text size="xsmall" className="mt-0.5 whitespace-pre-wrap break-words text-ui-tag-red-text opacity-90">
-              {body}
-            </Text>
-          )}
-        </div>
-        <Copy content={cleaned} className="shrink-0 text-ui-tag-red-text" />
-      </div>
-    </div>
-  )
-}
-
-const kindIcon = (kind: QuickAction["kind"]) => {
-  switch (kind) {
-    case "create":
-      return SquaresPlus
-    case "draft":
-      return PencilSquare
-    case "inspect":
-      return MagnifyingGlass
-    case "fix":
-      return CogSixTooth
-    case "schedule":
-      return CogSixTooth
-    case "export":
-    case "report":
-      return DocumentText
-    default:
-      return CircleStack
-  }
-}
-
-const QuickActionCards = ({
-  actions,
-  onAction,
-}: {
-  actions?: QuickAction[]
-  onAction: (action: QuickAction) => Promise<void>
-}) => {
-  if (!actions?.length) return null
-
-  return (
-    <div className="pt-1">
-      <div className="mb-1.5 flex items-center gap-x-1.5 px-0.5">
-        <LightBulb className="text-ui-fg-muted" />
-        <Text size="xsmall" weight="plus" className="text-ui-fg-muted">
-          Đề xuất tiếp theo
-        </Text>
-      </div>
-      <div className="grid gap-1.5 sm:grid-cols-2">
-        {actions.map((action, index) => {
-          const Icon = kindIcon(action.kind)
-          return (
-            <button
-              key={`${action.tool}-${index}`}
-              className="group flex items-start gap-x-2.5 rounded-lg border border-ui-border-base bg-ui-bg-subtle px-3 py-2 text-left transition-colors hover:border-ui-border-interactive hover:bg-ui-bg-base-hover"
-              onClick={() => onAction(action)}
-            >
-              <span className="mt-0.5 shrink-0 text-ui-fg-muted transition-colors group-hover:text-ui-fg-interactive">
-                <Icon />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-x-2">
-                  <Text
-                    size="xsmall"
-                    weight="plus"
-                    className="truncate text-ui-fg-base"
-                  >
-                    {action.label}
-                  </Text>
-                  <Badge size="2xsmall" color={riskColor(action.risk)}>
-                    {action.kind}
-                  </Badge>
-                </div>
-                {action.description && (
-                  <Text
-                    size="xsmall"
-                    className="mt-0.5 line-clamp-2 text-ui-fg-subtle"
-                  >
-                    {action.description}
-                  </Text>
-                )}
-              </div>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-const ChatMessageBubble = ({
-  msg,
-  isStreaming,
-  onQuickAction,
-}: {
-  msg: ChatMessage
-  isStreaming?: boolean
-  onQuickAction: (action: QuickAction) => Promise<void>
-}) => {
-  const isUser = msg.role === "user"
-  const isTool = msg.role === "tool"
-  const parts: ContentPart[] = msg.content_parts ?? []
-  const thought = parts.find((p) => p.type === "think")?.think
-  const tools = parts.filter((p) => p.type === "tool_call") as Array<ContentPart & { type: "tool_call" }>
-
-  if (isTool) {
-    if (parts.some((part) => part.type === "error")) {
-      return (
-        <div className="flex justify-start pl-8 kami-msg-enter">
-          <div className="w-full max-w-full space-y-1">
-            {parts.filter((part) => part.type === "error").map((part, i) => (
-              <ErrorBlock key={i} error={(part as any).error} />
-            ))}
-          </div>
-        </div>
-      )
-    }
-
-    return null
-  }
-
-  return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"} kami-msg-enter`}>
-      <div className={`kami-msg-bubble flex gap-x-3 max-w-[85%] ${isUser ? "flex-row-reverse" : "flex-row"}`}>
-        {/* Avatar */}
-        <div className={`flex size-6 shrink-0 items-center justify-center rounded-full mt-0.5 ${isUser ? "bg-ui-tag-blue-bg" : "bg-ui-tag-purple-bg"}`}>
-          <Text size="xsmall" weight="plus" className={isUser ? "text-ui-tag-blue-text" : "text-ui-tag-purple-text"}>
-            {isUser ? "U" : "K"}
-          </Text>
-        </div>
-
-        {/* Content */}
-        <div className={`flex min-w-0 flex-1 flex-col space-y-1.5 ${isUser ? "items-end" : "items-start"}`}>
-          <ExecutionTrace thought={thought} tools={tools} isStreaming={isStreaming} />
-
-          {/* Text content */}
-          {isUser ? (
-            <div className="max-w-full rounded-2xl rounded-tr-sm bg-ui-tag-blue-bg px-3.5 py-2">
-              <Text size="small" className="whitespace-pre-wrap break-words text-ui-tag-blue-text">
-                {msg.content}
-              </Text>
-            </div>
-          ) : msg.content ? (
-            <div className="max-w-full overflow-hidden rounded-2xl rounded-tl-sm border border-ui-border-base bg-ui-bg-base px-3.5 py-2">
-              <KamiMarkdown text={msg.content} />
-              {isStreaming && <span className="kami-stream-caret text-ui-fg-interactive" />}
-            </div>
-          ) : (
-            // No text yet. Only show the loading dots when nothing else is
-            // rendered (no thinking, no tools) so we don't stack a redundant
-            // empty bubble under the tool cards. Once the turn is done with no
-            // text (tools-only turn), render nothing instead of an empty box.
-            isStreaming && !thought && tools.length === 0 && (
-              <div className="rounded-2xl rounded-tl-sm border border-ui-border-base bg-ui-bg-base px-3.5 py-2">
-                <AssistantLoading />
-              </div>
-            )
-          )}
-
-          {parts.filter((p) => p.type === "error").map((part, i) => (
-            <ErrorBlock key={i} error={(part as any).error} />
-          ))}
-
-          {/* Timestamp on hover */}
-          {msg.created_at && (
-            <Text size="xsmall" className="text-ui-fg-muted opacity-0 group-hover:opacity-100 transition-opacity">
-              {relativeTime(msg.created_at)}
-            </Text>
-          )}
-
-          {!isUser && (
-            <QuickActionCards
-              actions={msg.metadata?.quick_actions as QuickAction[] | undefined}
-              onAction={onQuickAction}
-            />
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-const ArtifactPanel = ({
-  report,
-  onClose,
-}: {
-  report: Row | null
-  onClose: () => void
-}) => {
-  const [tab, setTab] = useState<"report" | "table" | "chart" | "export">("report")
-
-  useEffect(() => {
-    setTab("report")
-  }, [report?.id])
-
-  const [isClosing, setIsClosing] = useState(false)
-
-  // Nothing to show and not mid-close animation — bail out
-  if (!report && !isClosing) return null
-
-  const handleClose = () => {
-    setIsClosing(true)
-    setTimeout(() => {
-      setIsClosing(false)
-      onClose()
-    }, 250)
-  }
-
-  // Slide-in when opening fresh, slide-out when user clicks Hide
-  const animClass = report && !isClosing
-    ? "kami-panel-slide-in"
-    : "kami-panel-slide-out"
-
-  const payload = report!.payload as ArtifactPayload
-  const sections = payload?.sections ?? []
-  const tables = sections.filter((section) => section.type === "table") as Array<Extract<ArtifactSection, { type: "table" }>>
-  const charts = sections.filter((section) => section.type === "chart") as Array<Extract<ArtifactSection, { type: "chart" }>>
-  const kpis = sections.filter((section) => section.type === "kpi") as Array<Extract<ArtifactSection, { type: "kpi" }>>
-  const textSections = sections.filter((section) => section.type === "text") as Array<Extract<ArtifactSection, { type: "text" }>>
-
-  const download = (format: "csv" | "markdown") => {
-    window.open(`/admin/kami/reports/${report!.id}/export?format=${format}`, "_blank")
-  }
-
-  return (
-    <div className={`kami-right-panel flex min-h-0 w-[420px] shrink-0 flex-col border-l border-ui-border-base bg-ui-bg-base ${animClass}`}>
-      <div className="border-b border-ui-border-base px-4 py-3">
-        <div className="flex items-start justify-between gap-x-3">
-          <div className="min-w-0">
-            <Heading level="h2" className="!text-base truncate">
-              {payload?.title ?? report!.title ?? "KAMI Report"}
-            </Heading>
-            <Text size="xsmall" className="text-ui-fg-muted">
-              {payload?.date_range?.label ?? "Current context"} · {payload?.utc_offset ?? "UTC+7"}
-            </Text>
-          </div>
-          <Button size="small" variant="transparent" onClick={handleClose}>
-            Hide
-          </Button>
-        </div>
-        <div className="mt-3 grid grid-cols-4 gap-1 rounded-md bg-ui-bg-subtle p-1">
-          {(["report", "table", "chart", "export"] as const).map((item) => (
-            <button
-              key={item}
-              className={`rounded px-2 py-1 text-xs capitalize ${tab === item ? "bg-ui-bg-base text-ui-fg-base shadow-sm" : "text-ui-fg-subtle hover:text-ui-fg-base"}`}
-              onClick={() => setTab(item)}
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {tab === "report" && (
-          <div className="space-y-4">
-            {kpis.map((section, sectionIndex) => (
-              <div key={`kpi-${sectionIndex}`} className="space-y-2">
-                <Text size="small" weight="plus">{section.title}</Text>
-                <div className="grid grid-cols-2 gap-2">
-                  {section.cards.map((card, cardIndex) => (
-                    <div key={`${card.label}-${cardIndex}`} className="rounded-md border border-ui-border-base bg-ui-bg-subtle p-3">
-                      <Text size="xsmall" className="text-ui-fg-muted">{card.label}</Text>
-                      <Text size="base" weight="plus" className="mt-1 text-ui-fg-base">{card.value}</Text>
-                      {card.delta && <Text size="xsmall" className="text-ui-fg-subtle">{card.delta}</Text>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-            {textSections.map((section, index) => (
-              <div key={`text-${index}`} className="rounded-md border border-ui-border-base p-3">
-                {section.title && <Text size="small" weight="plus" className="mb-2">{section.title}</Text>}
-                <KamiMarkdown text={section.content} />
-              </div>
-            ))}
-            <div className="rounded-md border border-ui-border-base p-3">
-              <Text size="small" weight="plus" className="mb-2">Sources</Text>
-              <div className="space-y-1">
-                {(payload?.data_sources ?? []).map((source, index) => (
-                  <div key={`${source.tool}-${index}`} className="flex items-center justify-between gap-x-3">
-                    <Text size="xsmall" className="truncate text-ui-fg-subtle">{toolLabel(source.tool)}</Text>
-                    <Text size="xsmall" className="text-ui-fg-muted">{source.row_count} rows</Text>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {tab === "table" && (
-          <div className="space-y-4">
-            {tables.length ? tables.map((section, sectionIndex) => (
-              <div key={`table-${sectionIndex}`} className="space-y-2">
-                <Text size="small" weight="plus">{section.title}</Text>
-                <div className="overflow-x-auto rounded-md border border-ui-border-base">
-                  <table className="min-w-full text-xs">
-                    <thead className="bg-ui-bg-subtle">
-                      <tr>
-                        {section.columns.map((column) => (
-                          <th key={column.key} className={`px-2 py-2 text-left font-medium ${column.align === "right" ? "text-right" : ""}`}>
-                            {column.label}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {section.rows.map((row, rowIndex) => (
-                        <tr key={rowIndex} className="border-t border-ui-border-base">
-                          {section.columns.map((column) => (
-                            <td key={column.key} className={`px-2 py-2 ${column.align === "right" ? "text-right" : ""}`}>
-                              {String(row[column.key] ?? "-")}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <Text size="xsmall" className="text-ui-fg-muted">{section.total_rows} rows</Text>
-              </div>
-            )) : <Text size="small" className="text-ui-fg-subtle">No table sections in this report.</Text>}
-          </div>
-        )}
-
-        {tab === "chart" && (
-          <div className="space-y-4">
-            {charts.length ? charts.map((section, sectionIndex) => {
-              const values = section.data.datasets[0]?.values ?? []
-              const max = Math.max(...values, 1)
-
-              return (
-                <div key={`chart-${sectionIndex}`} className="rounded-md border border-ui-border-base p-3">
-                  <Text size="small" weight="plus" className="mb-3">{section.title}</Text>
-                  <div className="space-y-2">
-                    {section.data.labels.map((label, index) => {
-                      const value = values[index] ?? 0
-
-                      return (
-                        <div key={`${label}-${index}`} className="space-y-1">
-                          <div className="flex items-center justify-between gap-x-2">
-                            <Text size="xsmall" className="truncate text-ui-fg-subtle">{label}</Text>
-                            <Text size="xsmall" className="text-ui-fg-muted">{value}</Text>
-                          </div>
-                          <div className="h-2 rounded-full bg-ui-bg-subtle">
-                            <div className="h-2 rounded-full bg-ui-fg-interactive" style={{ width: `${Math.max(4, (value / max) * 100)}%` }} />
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            }) : <Text size="small" className="text-ui-fg-subtle">No chart sections in this report.</Text>}
-          </div>
-        )}
-
-        {tab === "export" && (
-          <div className="space-y-3">
-            <Button className="w-full" variant="secondary" onClick={() => download("csv")}>
-              Download CSV
-            </Button>
-            <Button className="w-full" variant="secondary" onClick={() => download("markdown")}>
-              Download Markdown
-            </Button>
-            <div className="rounded-md border border-ui-border-base p-3">
-              <Text size="small" weight="plus">Export scope</Text>
-              <Text size="xsmall" className="mt-1 text-ui-fg-subtle">
-                CSV exports table sections. Markdown exports the full report summary.
-              </Text>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-const UiCommandPanel = ({
-  command,
-  onClose,
-}: {
-  command: UiCommand | null
-  onClose: () => void
-}) => {
-  if (!command) return null
-
-  const href = recordHref(command.record_type, command.record_id)
-  const severity = command.severity ?? "info"
-
-  return (
-    <div className="kami-right-panel flex min-h-0 w-[420px] shrink-0 flex-col border-l border-ui-border-base bg-ui-bg-base">
-      <div className="border-b border-ui-border-base px-4 py-3">
-        <div className="flex items-start justify-between gap-x-3">
-          <div className="min-w-0">
-            <Heading level="h2" className="!text-base truncate">
-              {command.title ?? "KAMI Focus"}
-            </Heading>
-            <Text size="xsmall" className="text-ui-fg-muted">
-              {command.action.replace(/_/g, " ")}
-            </Text>
-          </div>
-          <Button size="small" variant="transparent" onClick={onClose}>
-            Hide
-          </Button>
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-        <div className="rounded-md border border-ui-border-base p-3">
-          <div className="mb-2 flex items-center gap-x-2">
-            <Badge color={severity === "critical" ? "red" : severity === "warning" ? "orange" : "blue"}>
-              {severity}
-            </Badge>
-            {command.panel && <Badge>{command.panel}</Badge>}
-          </div>
-          {command.reason && (
-            <Text size="small" className="whitespace-pre-wrap text-ui-fg-base">
-              {command.reason}
-            </Text>
-          )}
-          {command.record_id && (
-            <div className="mt-3 rounded-md bg-ui-bg-subtle p-2">
-              <Text size="xsmall" weight="plus">Record</Text>
-              <Text size="xsmall" className="break-all text-ui-fg-subtle">
-                {command.record_type ?? "record"} · {command.record_id}
-              </Text>
-            </div>
-          )}
-        </div>
-        {href && (
-          <Button size="small" variant="secondary" className="w-full" onClick={() => window.open(href, "_blank")}>
-            Open record
-          </Button>
-        )}
-        {command.metadata && Object.keys(command.metadata).length > 0 && (
-          <div className="rounded-md border border-ui-border-base p-3">
-            <Text size="small" weight="plus" className="mb-2">Context</Text>
-            <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-xs text-ui-fg-subtle">
-              {safeJson(command.metadata)}
-            </pre>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-const DraftPanel = ({
-  draft,
-  onClose,
-  onSave,
-  onExecute,
-  onDismiss,
-}: {
-  draft: Row | null
-  onClose: () => void
-  onSave: (draft: Row, args: Row) => Promise<Row | null>
-  onExecute: (draft: Row, args: Row) => Promise<void>
-  onDismiss: (draft: Row) => Promise<void>
-}) => {
-  const payload = draft?.payload as CommerceDraftPayload | undefined
-  const [argsText, setArgsText] = useState("")
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  useEffect(() => {
-    setArgsText(safeJson(payload?.args ?? {}))
-    setError(null)
-  }, [draft?.id])
-
-  if (!draft || !payload) return null
-
-  const parseArgs = () => {
-    try {
-      const parsed = JSON.parse(argsText || "{}")
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw new Error("Draft args must be a JSON object")
-      }
-      setError(null)
-      return parsed as Row
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e)
-      setError(message)
-      return null
-    }
-  }
-
-  const save = async () => {
-    const args = parseArgs()
-    if (!args) return
-    setBusy(true)
-    try {
-      await onSave(draft, args)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const execute = async () => {
-    const args = parseArgs()
-    if (!args) return
-
-    if (payload.confirm_required || payload.risk === "mutating" || payload.risk === "destructive") {
-      const ok = window.confirm(`Execute draft "${payload.title}" with tool ${payload.target_tool}?`)
-      if (!ok) return
-    }
-
-    setBusy(true)
-    try {
-      await onExecute(draft, args)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const dismiss = async () => {
-    const ok = window.confirm(`Dismiss draft "${payload.title}"?`)
-    if (!ok) return
-    setBusy(true)
-    try {
-      await onDismiss(draft)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="kami-right-panel flex min-h-0 w-[460px] shrink-0 flex-col border-l border-ui-border-base bg-ui-bg-base">
-      <div className="border-b border-ui-border-base px-4 py-3">
-        <div className="flex items-start justify-between gap-x-3">
-          <div className="min-w-0">
-            <Heading level="h2" className="!text-base truncate">
-              {payload.title}
-            </Heading>
-            <Text size="xsmall" className="text-ui-fg-muted">
-              {payload.draft_type} · {payload.utc_offset ?? "UTC+7"}
-            </Text>
-          </div>
-          <Button size="small" variant="transparent" onClick={onClose}>
-            Hide
-          </Button>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          <Badge color={payload.status === "executed" ? "green" : payload.status === "approval_required" ? "orange" : payload.status === "error" ? "red" : "blue"}>
-            {payload.status}
-          </Badge>
-          <Badge color={riskColor(payload.risk)}>{payload.risk}</Badge>
-          <Badge>{payload.target_tool}</Badge>
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-        {payload.description && (
-          <div className="rounded-md border border-ui-border-base p-3">
-            <Text size="small" className="whitespace-pre-wrap text-ui-fg-base">
-              {payload.description}
-            </Text>
-          </div>
-        )}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Text size="small" weight="plus">Editable tool arguments</Text>
-            <Text size="xsmall" className="text-ui-fg-muted">JSON</Text>
-          </div>
-          <Textarea
-            value={argsText}
-            onChange={(e: any) => setArgsText(e.target.value)}
-            className="min-h-[260px] font-mono text-xs"
-            disabled={busy || payload.status === "executed" || payload.status === "dismissed"}
-          />
-          {error && (
-            <Text size="xsmall" className="text-ui-tag-red-text">
-              {error}
-            </Text>
-          )}
-        </div>
-        {payload.execution_result !== undefined && (
-          <div className="rounded-md border border-ui-border-base p-3">
-            <Text size="small" weight="plus" className="mb-2">Execution result</Text>
-            <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-xs text-ui-fg-subtle">
-              {compact(payload.execution_result, 4000)}
-            </pre>
-          </div>
-        )}
-      </div>
-      <div className="flex shrink-0 items-center justify-between gap-x-2 border-t border-ui-border-base px-4 py-3">
-        <Button size="small" variant="danger" onClick={dismiss} disabled={busy || payload.status === "dismissed"}>
-          Dismiss
-        </Button>
-        <div className="flex gap-x-2">
-          <Button size="small" variant="secondary" onClick={save} disabled={busy || payload.status === "executed" || payload.status === "dismissed"}>
-            Save draft
-          </Button>
-          <Button size="small" onClick={execute} disabled={busy || payload.status === "executed" || payload.status === "dismissed"}>
-            Execute
-          </Button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/*  Panel: Drawers for Admin Tabs                                      */
-/* ------------------------------------------------------------------ */
-
-const AdminDrawer = ({
-  tab,
-  open,
-  onClose,
-  loadData,
-  sessions, skills, approvals, auditLogs, jobs, memories, gateways, settings, health,
-  memoryQuery, setMemoryQuery, memoryDraft, setMemoryDraft, searchMemory, addMemory,
-  editingMemoryId, setEditingMemoryId, memoryEditDraft, setMemoryEditDraft,
-  startMemoryEdit, saveMemoryEdit, deleteMemory, toggleMemoryDisabled,
-  cronDraft, setCronDraft, createCronJob, decideApproval, reportTemplates,
-  runReportTemplate, scheduleTemplate, autonomy, evalResult, evalRunning, runEvaluation,
-}: {
-  tab: TabId | null
-  open: boolean
-  onClose: () => void
-  loadData: () => Promise<void>
-  [key: string]: any
-}) => {
-  const title = {
-    approvals: "Approvals", audit: "Audit Log", memory: "Memory",
-    skills: "Skills", cron: "Cron Jobs", gateways: "Gateways", settings: "Settings",
-    autonomy: "Autonomy", evals: "Evaluations",
-  }[tab ?? ""] ?? ""
-
-  return (
-    <Drawer open={open} onOpenChange={(o) => !o && onClose()}>
-      <Drawer.Content>
-        <Drawer.Header>
-          <Drawer.Title>{title}</Drawer.Title>
-        </Drawer.Header>
-        {/* min-h-0 + overflow-y-auto: Drawer.Body defaults to flex-1 only (no overflow),
-            so long content (Cron/Memory/Settings) overflows without scrolling. */}
-        <Drawer.Body className="min-h-0 space-y-4 overflow-y-auto px-4" data-kami-drawer-body>
-          {tab === "approvals" && (
-            <div className="space-y-2">
-              {approvals?.length ? approvals.map((a: Row) => (
-                <div key={a.id} className="rounded-lg border border-ui-border-base p-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <Badge>{a.tool}</Badge>
-                    <Badge color={a.status === "pending" ? "orange" : a.status === "approved" ? "green" : "red"}>
-                      {a.status}
-                    </Badge>
-                  </div>
-                  <Text size="xsmall" className="text-ui-fg-subtle">{compact(a.args)}</Text>
-                  <Text size="xsmall" className="text-ui-fg-muted">{formatDate(a.requested_at)}</Text>
-                  {a.status === "pending" && (
-                    <div className="flex gap-x-2 mt-2">
-                      <Button size="small" variant="secondary" onClick={() => decideApproval(a.id, "rejected")}>Reject</Button>
-                      <Button size="small" onClick={() => decideApproval(a.id, "approved")}>Approve</Button>
-                    </div>
-                  )}
-                </div>
-              )) : <Text size="small" className="text-ui-fg-subtle">No pending approvals</Text>}
-            </div>
-          )}
-
-          {tab === "audit" && (
-            <div className="space-y-2">
-              {auditLogs?.length ? auditLogs.map((log: Row) => (
-                <div key={log.id} className="rounded-lg border border-ui-border-base p-3">
-                  <div className="flex items-center gap-x-2 mb-1">
-                    <Badge color={riskColor(log.risk_level)}>{log.risk_level}</Badge>
-                    <Badge>{log.actor ?? "kami"}</Badge>
-                    <Text size="xsmall" weight="plus">{log.tool}</Text>
-                  </div>
-                  <Text size="xsmall" className="text-ui-fg-subtle">{log.result_summary ?? "-"}</Text>
-                  <Text size="xsmall" className="text-ui-fg-muted">{formatDate(log.created_at)}</Text>
-                </div>
-              )) : <Text size="small" className="text-ui-fg-subtle">No audit logs</Text>}
-            </div>
-          )}
-
-          {tab === "memory" && (
-            <div className="space-y-4">
-              <div className="flex gap-x-2">
-                <Input
-                  placeholder="Search memories..."
-                  value={memoryQuery}
-                  onChange={(e: any) => setMemoryQuery(e.target.value)}
-                  onKeyDown={(e: any) => e.key === "Enter" && searchMemory()}
-                />
-                <Button size="small" variant="secondary" onClick={searchMemory}>Search</Button>
-              </div>
-              <div className="border-t border-ui-border-base pt-3 space-y-2">
-                <Text size="xsmall" weight="plus">Add memory</Text>
-                <select className="w-full h-8 rounded-md border border-ui-border-base px-2 text-sm"
-                  value={memoryDraft.type}
-                  onChange={(e) => setMemoryDraft((d: any) => ({ ...d, type: e.target.value }))}>
-                  {["factual", "preference", "goal", "instruction", "event"].map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-                <select className="w-full h-8 rounded-md border border-ui-border-base px-2 text-sm"
-                  value={memoryDraft.category}
-                  onChange={(e) => setMemoryDraft((d: any) => ({ ...d, category: e.target.value }))}>
-                  {["preference", "shop_rule", "operational", "goal", "forbidden"].map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-                <Textarea
-                  value={memoryDraft.content}
-                  onChange={(e: any) => setMemoryDraft((d: any) => ({ ...d, content: e.target.value }))}
-                  placeholder="Remember that..."
-                />
-                <Button size="small" onClick={addMemory}>Store</Button>
-              </div>
-              <div className="space-y-2">
-                {memories?.length ? memories.map((m: Row) => (
-                  <div key={m.id} className="rounded-lg border border-ui-border-base p-3">
-                    {editingMemoryId === m.id ? (
-                      <div className="space-y-2">
-                        <div className="grid grid-cols-2 gap-2">
-                          <select className="h-8 rounded-md border border-ui-border-base px-2 text-sm"
-                            value={memoryEditDraft.type}
-                            onChange={(e) => setMemoryEditDraft((d: any) => ({ ...d, type: e.target.value }))}>
-                            {["factual", "preference", "goal", "instruction", "event"].map((t) => (
-                              <option key={t} value={t}>{t}</option>
-                            ))}
-                          </select>
-                          <select className="h-8 rounded-md border border-ui-border-base px-2 text-sm"
-                            value={memoryEditDraft.category}
-                            onChange={(e) => setMemoryEditDraft((d: any) => ({ ...d, category: e.target.value }))}>
-                            {["preference", "shop_rule", "operational", "goal", "forbidden"].map((t) => (
-                              <option key={t} value={t}>{t}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <Textarea
-                          value={memoryEditDraft.content}
-                          onChange={(e: any) => setMemoryEditDraft((d: any) => ({ ...d, content: e.target.value }))}
-                        />
-                        <label className="flex items-center gap-x-2 text-xs text-ui-fg-subtle">
-                          <input
-                            type="checkbox"
-                            checked={memoryEditDraft.disabled}
-                            onChange={(e) => setMemoryEditDraft((d: any) => ({ ...d, disabled: e.target.checked }))}
-                          />
-                          Disabled
-                        </label>
-                        <div className="flex justify-end gap-x-2">
-                          <Button size="small" variant="secondary" onClick={() => setEditingMemoryId(null)}>Cancel</Button>
-                          <Button size="small" onClick={saveMemoryEdit}>Save</Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="flex items-center gap-x-2 mb-1">
-                          <Badge>{getMemoryCategory(m)}</Badge>
-                          <Badge color={isMemoryDisabled(m) ? "grey" : "green"}>{isMemoryDisabled(m) ? "disabled" : "active"}</Badge>
-                          <Text size="xsmall" className="text-ui-fg-muted">importance {m.importance ?? 1}</Text>
-                        </div>
-                        <Text size="small" className="whitespace-pre-wrap">{m.content}</Text>
-                        <div className="mt-2 flex justify-end gap-x-1.5">
-                          <Button size="small" variant="transparent" onClick={() => startMemoryEdit(m)}>Edit</Button>
-                          <Button size="small" variant="transparent" onClick={() => toggleMemoryDisabled(m)}>
-                            {isMemoryDisabled(m) ? "Enable" : "Disable"}
-                          </Button>
-                          <Button size="small" variant="danger" onClick={() => deleteMemory(m)}>Delete</Button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )) : <Text size="small" className="text-ui-fg-subtle">No memories</Text>}
-              </div>
-            </div>
-          )}
-
-          {tab === "skills" && (
-            <div className="space-y-2">
-              {skills?.length ? skills.map((s: Row) => (
-                <div key={s.id} className="rounded-lg border border-ui-border-base p-3">
-                  <div className="flex items-center gap-x-2 mb-1">
-                    <Text size="small" weight="plus">{s.name}</Text>
-                    <Badge>{s.category ?? "-"}</Badge>
-                    <Badge>{s.origin ?? "human"}</Badge>
-                  </div>
-                  <Text size="xsmall" className="text-ui-fg-subtle">{s.description ?? "-"}</Text>
-                </div>
-              )) : <Text size="small" className="text-ui-fg-subtle">No skills</Text>}
-            </div>
-          )}
-
-          {tab === "cron" && (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Text size="xsmall" weight="plus">Report templates</Text>
-                {reportTemplates?.length ? reportTemplates.map((template: Row) => (
-                  <div key={template.id} className="rounded-lg border border-ui-border-base p-3">
-                    <div className="flex items-start justify-between gap-x-3">
-                      <div className="min-w-0">
-                        <Text size="small" weight="plus" className="truncate">{template.title}</Text>
-                        <Text size="xsmall" className="line-clamp-2 text-ui-fg-subtle">{template.description}</Text>
-                      </div>
-                      <Badge>{template.category ?? "general"}</Badge>
-                    </div>
-                    <div className="mt-2 flex flex-wrap justify-end gap-1.5">
-                      <Button size="small" variant="secondary" onClick={() => runReportTemplate(template)}>Run</Button>
-                      {(template.schedule_presets?.length ? template.schedule_presets : [{ label: "Every morning 8:00", schedule: "0 8 * * *" }]).slice(0, 2).map((preset: Row) => (
-                        <Button key={preset.label} size="small" variant="transparent" onClick={() => scheduleTemplate(template, preset)}>
-                          {preset.label}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                )) : <Text size="small" className="text-ui-fg-subtle">No report templates</Text>}
-              </div>
-
-              <div className="border rounded-lg border-ui-border-base p-3 space-y-3">
-                <Text size="xsmall" weight="plus">Create job</Text>
-                <Input placeholder="Job name" value={cronDraft.name}
-                  onChange={(e: any) => setCronDraft((d: any) => ({ ...d, name: e.target.value }))} />
-                <Textarea placeholder="Prompt KAMI should run..." value={cronDraft.prompt}
-                  onChange={(e: any) => setCronDraft((d: any) => ({ ...d, prompt: e.target.value }))} />
-                <Input placeholder="Schedule (e.g. @daily)" value={cronDraft.schedule}
-                  onChange={(e: any) => setCronDraft((d: any) => ({ ...d, schedule: e.target.value }))} />
-                <select className="w-full h-8 rounded-md border border-ui-border-base px-2 text-sm"
-                  value={cronDraft.deliver}
-                  onChange={(e) => setCronDraft((d: any) => ({ ...d, deliver: e.target.value }))}>
-                  <option value="audit">Audit only</option>
-                  <option value="session">Session</option>
-                </select>
-                <Button size="small" onClick={createCronJob}>Create</Button>
-              </div>
-              {jobs?.length ? jobs.map((j: Row) => (
-                <div key={j.id} className="rounded-lg border border-ui-border-base p-3">
-                  <div className="flex items-center gap-x-2 mb-1">
-                    <Text size="small" weight="plus">{j.name}</Text>
-                    <Badge>{j.enabled ? "active" : "paused"}</Badge>
-                  </div>
-                  <Text size="xsmall" className="text-ui-fg-subtle">{j.metadata?.schedule_label ?? j.schedule}</Text>
-                  <Text size="xsmall" className="text-ui-fg-muted">
-                    Next: {formatDate(j.next_run_at)} · Last: {formatDate(j.last_run_at)}
-                  </Text>
-                  {j.metadata?.run_history?.length > 0 && (
-                    <div className="mt-2 rounded-md bg-ui-bg-subtle p-2">
-                      <Text size="xsmall" weight="plus" className="mb-1">Run history</Text>
-                      {j.metadata.run_history.slice(0, 3).map((run: Row, index: number) => (
-                        <div key={index} className="flex items-center justify-between gap-x-2">
-                          <Text size="xsmall" className="text-ui-fg-subtle">{formatDate(run.run_at)}</Text>
-                          <Text size="xsmall" className="text-ui-fg-muted">{run.status}</Text>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )) : <Text size="small" className="text-ui-fg-subtle">No scheduled jobs</Text>}
-            </div>
-          )}
-
-          {tab === "gateways" && (
-            <div className="space-y-2">
-              {gateways?.length ? gateways.map((gw: Row) => (
-                <div key={gw.id} className="rounded-lg border border-ui-border-base p-3 flex items-center justify-between">
-                  <div>
-                    <Text size="small" weight="plus">{gw.label}</Text>
-                    <Text size="xsmall" className="text-ui-fg-subtle"><code>{gw.webhook_path}</code></Text>
-                  </div>
-                  <Badge color={gw.configured ? "green" : "grey"} size="small">
-                    {gw.configured ? "configured" : "not configured"}
-                  </Badge>
-                </div>
-              )) : (
-                <div className="space-y-2">
-                  <Text size="small" className="text-ui-fg-subtle">No gateways configured. Set env vars and restart.</Text>
-                  <div className="rounded-lg border border-ui-border-base p-3">
-                    <Text size="small" weight="plus">Telegram</Text>
-                    <Text size="xsmall" className="text-ui-fg-subtle">Set KAMI_GATEWAY_TELEGRAM_TOKEN</Text>
-                  </div>
-                  <div className="rounded-lg border border-ui-border-base p-3">
-                    <Text size="small" weight="plus">Discord</Text>
-                    <Text size="xsmall" className="text-ui-fg-subtle">Set KAMI_GATEWAY_DISCORD_TOKEN + KAMI_GATEWAY_DISCORD_PUBLIC_KEY</Text>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {tab === "settings" && (
-            <div className="space-y-3">
-              {settings && Object.entries(settings)
-                .filter(([k]) => !["model", "primary_model", "fallback_model", "fallbackModel", "baseUrl"].includes(k))
-                .map(([k, v]) => (
-                <div key={k} className="rounded-lg border border-ui-border-base p-3">
-                  <Text size="small" weight="plus">{k}</Text>
-                  <Text size="small" className="break-words text-ui-fg-subtle">{compact(String(v), 180)}</Text>
-                </div>
-              ))}
-              {health && (
-                <div className="rounded-lg border border-ui-border-base p-3">
-                  <Text size="small" weight="plus">Provider Health</Text>
-                  <Badge color={health.healthy ? "green" : "red"}>{health.healthy ? "healthy" : "unhealthy"}</Badge>
-                </div>
-              )}
-            </div>
-          )}
-
-          {tab === "autonomy" && (
-            <div className="space-y-3">
-              {autonomy ? (
-                <>
-                  <div className="rounded-lg border border-ui-border-base p-3">
-                    <div className="mb-1 flex items-center justify-between gap-x-2">
-                      <Text size="small" weight="plus">Mode</Text>
-                      <Badge>{autonomy.mode}</Badge>
-                    </div>
-                    <Text size="small" className="text-ui-fg-subtle">{autonomy.description}</Text>
-                    <Text size="xsmall" className="mt-2 text-ui-fg-muted">
-                      Max mutations per turn: {autonomy.max_mutations_per_turn}
-                    </Text>
-                  </div>
-                  <div className="space-y-2">
-                    {(autonomy.policies ?? []).map((policy: Row) => (
-                      <div key={policy.risk} className="rounded-lg border border-ui-border-base p-3">
-                        <div className="flex items-center justify-between gap-x-2">
-                          <Text size="small" weight="plus">{policy.risk}</Text>
-                          <Badge color={policy.approval_required ? "orange" : "green"}>
-                            {policy.approval_required ? "approval" : "direct"}
-                          </Badge>
-                        </div>
-                        <Text size="xsmall" className="text-ui-fg-subtle">
-                          Direct execution: {policy.direct ? "yes" : "no"}
-                        </Text>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <Text size="small" className="text-ui-fg-subtle">Autonomy policy is not loaded.</Text>
-              )}
-            </div>
-          )}
-
-          {tab === "evals" && (
-            <div className="space-y-3">
-              <div className="rounded-lg border border-ui-border-base p-3">
-                <div className="flex items-start justify-between gap-x-3">
-                  <div>
-                    <Text size="small" weight="plus">Deterministic Harness</Text>
-                    <Text size="xsmall" className="text-ui-fg-subtle">
-                      Registry, report artifacts, quick actions, and autonomy policy.
-                    </Text>
-                  </div>
-                  <Button size="small" variant="secondary" disabled={evalRunning} onClick={runEvaluation}>
-                    {evalRunning ? "Running" : "Run"}
-                  </Button>
-                </div>
-              </div>
-              {evalResult ? (
-                <div className="space-y-2">
-                  <div className="rounded-lg border border-ui-border-base p-3">
-                    <div className="flex items-center justify-between gap-x-2">
-                      <Text size="small" weight="plus">Result</Text>
-                      <Badge color={evalResult.totals?.failed ? "red" : "green"}>
-                        {evalResult.totals?.passed ?? 0}/{evalResult.totals?.checks ?? 0} passed
-                      </Badge>
-                    </div>
-                    <Text size="xsmall" className="text-ui-fg-muted">{formatDate(evalResult.generated_at)}</Text>
-                  </div>
-                  {(evalResult.checks ?? []).map((item: Row) => (
-                    <div key={item.id} className="rounded-lg border border-ui-border-base p-3">
-                      <div className="flex items-center justify-between gap-x-2">
-                        <Text size="xsmall" weight="plus">{item.id}</Text>
-                        <Badge color={item.passed ? "green" : "red"}>
-                          {item.passed ? "pass" : "fail"}
-                        </Badge>
-                      </div>
-                      <Text size="xsmall" className="break-words text-ui-fg-subtle">{compact(item.details, 220)}</Text>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <Text size="small" className="text-ui-fg-subtle">No evaluation run yet.</Text>
-              )}
-            </div>
-          )}
-        </Drawer.Body>
-      </Drawer.Content>
-    </Drawer>
-  )
-}
+  appendTranscript,
+  blobToBase64,
+  cleanSpeechText,
+  detectSpeechLanguage,
+  EMPTY_MESSAGES,
+  extractRealtimeTranscript,
+  getBestSupportedAudioMimeType,
+  getMemoryCategory,
+  getSessionMeta,
+  getSessionTags,
+  isMemoryDisabled,
+  linear16FromFloat32,
+  mergeToolMessages,
+  parseSseBlock,
+  relativeTime,
+  updateToolResultParts,
+} from "./helpers"
+import { injectStyles } from "./styles"
+import { KamiLogo } from "./logo"
+import { ChatMessageBubble } from "./message-components"
+import { AdminDrawer } from "./admin-drawer"
 
 /* ------------------------------------------------------------------ */
 /*  Main Page                                                          */
@@ -1972,6 +57,7 @@ const KamiPage = () => {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [moreToolsOpen, setMoreToolsOpen] = useState(false)
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768)
@@ -2015,10 +101,7 @@ const KamiPage = () => {
   const [health, setHealth] = useState<Row | null>(null)
   const [gateways, setGateways] = useState<Row[]>([])
   const [reports, setReports] = useState<Row[]>([])
-  const [activeReport, setActiveReport] = useState<Row | null>(null)
   const [drafts, setDrafts] = useState<Row[]>([])
-  const [activeDraft, setActiveDraft] = useState<Row | null>(null)
-  const [activeCommand, setActiveCommand] = useState<UiCommand | null>(null)
   const [reportTemplates, setReportTemplates] = useState<Row[]>([])
   const [dashboardSuggestions, setDashboardSuggestions] = useState<Row[]>([])
   const [runningAction, setRunningAction] = useState<string | null>(null)
@@ -2192,31 +275,22 @@ const KamiPage = () => {
   const loadReports = async (id?: string) => {
     if (!id) {
       setReports([])
-      setActiveReport(null)
       return
     }
 
     const data = await getJson<{ reports: Row[] }>(`/admin/kami/reports?session_id=${encodeURIComponent(id)}&limit=20`)
     const nextReports = (data.reports ?? []).filter((report) => report.type !== "draft")
     setReports(nextReports)
-    setActiveReport(nextReports[0] ?? null)
   }
 
   const loadDrafts = async (id?: string) => {
     if (!id) {
       setDrafts([])
-      setActiveDraft(null)
       return
     }
 
     const data = await getJson<{ drafts: Row[] }>(`/admin/kami/drafts?session_id=${encodeURIComponent(id)}&limit=20`)
-    const nextDrafts = data.drafts ?? []
-    const firstPendingDraft = nextDrafts.find((draft) => draft.payload?.status === "pending") ?? null
-    setDrafts(nextDrafts)
-    setActiveDraft((current) => {
-      if (!current) return firstPendingDraft
-      return nextDrafts.find((draft) => draft.id === current.id) ?? firstPendingDraft
-    })
+    setDrafts(data.drafts ?? [])
   }
 
   useEffect(() => {
@@ -2337,10 +411,7 @@ const KamiPage = () => {
     })
     setPrompt("")
     setReports([])
-    setActiveReport(null)
     setDrafts([])
-    setActiveDraft(null)
-    setActiveCommand(null)
   }
 
   const startRenameSession = (session: Row) => {
@@ -2432,59 +503,22 @@ const KamiPage = () => {
 
   /* ---- Chat ---- */
 
+  // Artifacts, drafts, and focus cards now render inline in the chat stream, so
+  // the only ui_command that still drives navigation is open_drawer (which opens
+  // an admin drawer tab). Everything else is emitted as an inline card by the
+  // assistant turn and needs no imperative handling here.
   const applyUiCommand = (command: UiCommand) => {
     if (command.action === "open_drawer") {
       const tab = command.tab ?? command.panel
       if (["approvals", "audit", "memory", "skills", "cron", "gateways", "settings", "autonomy", "evals"].includes(String(tab))) {
         setDrawerTab(tab as TabId)
       }
-      setActiveCommand(null)
-      return
     }
-
-    if (command.action === "open_artifact" && command.artifact_id) {
-      const report = reports.find((item) => item.id === command.artifact_id)
-      if (report) {
-        setActiveReport(report)
-        setActiveDraft(null)
-        setActiveCommand(null)
-        return
-      }
-    }
-
-    if (command.action === "open_draft" && command.draft_id) {
-      const draft = drafts.find((item) => item.id === command.draft_id)
-      if (draft) {
-        setActiveDraft(draft)
-        setActiveReport(null)
-        setActiveCommand(null)
-        return
-      }
-    }
-
-    if (command.panel === "report" && reports[0]) {
-      setActiveReport(reports[0])
-      setActiveDraft(null)
-      setActiveCommand(null)
-      return
-    }
-
-    if (command.panel === "draft" && drafts[0]) {
-      setActiveDraft(drafts[0])
-      setActiveReport(null)
-      setActiveCommand(null)
-      return
-    }
-
-    setActiveCommand(command)
-    setActiveReport(null)
-    setActiveDraft(null)
   }
 
   const saveDraft = async (draft: Row, args: Row) => {
     const data = await patchJson<{ draft: Row }>(`/admin/kami/drafts/${draft.id}`, { args })
     setDrafts((prev) => prev.map((item) => item.id === draft.id ? data.draft : item))
-    setActiveDraft(data.draft)
     toast.success("Draft saved")
     return data.draft
   }
@@ -2493,11 +527,8 @@ const KamiPage = () => {
     const data = await postJson<Row>(`/admin/kami/drafts/${draft.id}/execute`, { args })
     const updatedDraft = data.draft
     setDrafts((prev) => prev.map((item) => item.id === draft.id ? updatedDraft : item))
-    setActiveDraft(updatedDraft)
 
     if (data.artifact) {
-      setActiveReport(data.artifact)
-      setActiveDraft(null)
       setReports((prev) => [data.artifact, ...prev.filter((report) => report.id !== data.artifact.id)])
     }
 
@@ -2534,7 +565,6 @@ const KamiPage = () => {
   const dismissDraft = async (draft: Row) => {
     const data = await deleteJson<{ draft: Row }>(`/admin/kami/drafts/${draft.id}`)
     setDrafts((prev) => prev.map((item) => item.id === draft.id ? data.draft : item))
-    setActiveDraft(null)
     toast.success("Draft dismissed")
   }
 
@@ -2719,6 +749,8 @@ const KamiPage = () => {
 
           if (evt.type === "artifact_done") {
             currentArtifactId = evt.artifact_id
+            // The report renders inline from the tool_call result. We keep it in
+            // `reports` only so export links + loadReports stay consistent.
             const report = {
               id: evt.artifact_id,
               title: evt.payload?.title,
@@ -2726,9 +758,6 @@ const KamiPage = () => {
               session_id: sessionId,
               created_at: new Date().toISOString(),
             }
-            setActiveReport(report)
-            setActiveDraft(null)
-            setActiveCommand(null)
             setReports((prev) => [report, ...prev.filter((item) => item.id !== report.id)])
             updateSessionMessages(bucketKey, (prev) => {
               const last = prev[prev.length - 1]
@@ -2763,9 +792,9 @@ const KamiPage = () => {
               type: "draft",
               created_at: new Date().toISOString(),
             }
-            setActiveDraft(draft)
-            setActiveReport(null)
-            setActiveCommand(null)
+            // The draft renders inline from its tool_call result. We keep it in
+            // `drafts` only so the inline card's live status (save/execute)
+            // stays consistent after reload.
             setDrafts((prev) => [draft, ...prev.filter((item) => item.id !== draft.id)])
           }
 
@@ -2774,10 +803,12 @@ const KamiPage = () => {
           }
 
           if (evt.type === "approval_required") {
+            // Render the approval gate inline in the chat stream (opencode-style)
+            // instead of shunting the user off to a separate panel.
             const appMsg: ChatMessage = {
               role: "tool",
               content: `Approval required for ${evt.call?.name ?? "unknown"}`,
-              content_parts: [{ type: "error", error: `Approval required: ${evt.call?.name ?? "unknown"}. Check the Approvals panel.` }],
+              content_parts: [{ type: "approval", approval: evt.approval as Row }],
               created_at: new Date().toISOString(),
             }
             updateSessionMessages(bucketKey, (prev) => [...prev, appMsg])
@@ -2796,17 +827,24 @@ const KamiPage = () => {
 
           if (evt.type === "done") {
             finalAssistantText = asstText
-            // Finalize the assistant message
+            // Snapshot the accumulated parts BEFORE resetting the accumulators.
+            // updateSessionMessages defers the updater to React's next render,
+            // so a `[...asstParts]` read inside the closure would run AFTER the
+            // reset below and capture an empty array — wiping the finalized text
+            // and rich tool cards. Capture a stable value here instead.
+            const finalParts = [...asstParts]
+            const finalArtifactId = currentArtifactId
+            const finalQuickActions = currentQuickActions
             updateSessionMessages(bucketKey, (prev) => {
               const last = prev[prev.length - 1]
               if (last?.role === "assistant") {
                 return [...prev.slice(0, -1), {
                   ...last,
-                  content_parts: [...asstParts],
+                  content_parts: finalParts,
                   metadata: {
                     ...(last.metadata ?? {}),
-                    artifact_id: currentArtifactId,
-                    quick_actions: currentQuickActions,
+                    artifact_id: finalArtifactId,
+                    quick_actions: finalQuickActions,
                     pending: false,
                   },
                 }]
@@ -2866,6 +904,27 @@ const KamiPage = () => {
 
   const decideApproval = async (id: string, status: "approved" | "rejected") => {
     await postJson(`/admin/kami/approvals/${id}/decide`, { status })
+    // Flip the inline approval card to its settled state right away, in every
+    // session bucket that holds it — the blocked turn resumes server-side.
+    const decided = status === "approved" ? "approved" as const : "rejected" as const
+    setMessagesBySession((prev) => {
+      let changed = false
+      const next: Record<string, ChatMessage[]> = {}
+      for (const [key, msgs] of Object.entries(prev)) {
+        next[key] = msgs.map((msg) => {
+          const parts = msg.content_parts
+          if (!parts?.some((p) => p.type === "approval" && (p.approval as Row)?.id === id)) return msg
+          changed = true
+          return {
+            ...msg,
+            content_parts: parts.map((p) =>
+              p.type === "approval" && (p.approval as Row)?.id === id ? { ...p, decided } : p
+            ),
+          }
+        })
+      }
+      return changed ? next : prev
+    })
     await loadData()
   }
 
@@ -2976,7 +1035,6 @@ const KamiPage = () => {
       }
 
       if (data.artifact) {
-        setActiveReport(data.artifact)
         setReports((prev) => [data.artifact, ...prev.filter((report) => report.id !== data.artifact.id)])
       }
 
@@ -3005,6 +1063,23 @@ const KamiPage = () => {
           }],
           created_at: new Date().toISOString(),
         },
+        // If the action produced a report artifact, render it inline as a card
+        // (the old panel path is gone). A synthetic render_artifact tool part is
+        // the same shape RichToolCard renders from a normal turn.
+        ...(data.artifact
+          ? [{
+              role: "tool" as const,
+              content: "",
+              content_parts: [{
+                type: "tool_call" as const,
+                tool_name: "render_artifact",
+                args: {},
+                result: { id: data.artifact.id, payload: data.artifact.payload },
+                risk: "read",
+              }],
+              created_at: new Date().toISOString(),
+            }]
+          : []),
       ])
 
       // ── Step 3: Trigger AI follow-up turn ──
@@ -3564,67 +1639,51 @@ const KamiPage = () => {
                 {pendingApprovals.length > 0 ? `${pendingApprovals.length}⚠` : "Appr"}
               </Button>
             </Tooltip>
-            <Tooltip content="Reports">
-              <Button
-                size="small"
-                variant="transparent"
-                className="kami-touch-btn"
-                disabled={reports.length === 0}
-                onClick={() => {
-                  setActiveReport(reports[0])
-                  setActiveDraft(null)
-                  setActiveCommand(null)
-                }}
-              >
-                Rpt{reports.length > 0 ? `(${reports.length})` : ""}
-              </Button>
-            </Tooltip>
-            <Tooltip content="Drafts">
-              <Button
-                size="small"
-                variant="transparent"
-                className="kami-touch-btn"
-                disabled={drafts.length === 0}
-                onClick={() => {
-                  setActiveDraft(drafts.find((draft) => draft.payload?.status === "pending") ?? drafts[0])
-                  setActiveReport(null)
-                  setActiveCommand(null)
-                }}
-              >
-                Drft{drafts.length > 0 ? `(${drafts.length})` : ""}
-              </Button>
-            </Tooltip>
 
-            {/* Desktop-only tab buttons */}
-            <Tooltip content="Audit Log"><Button size="small" variant="transparent" className="kami-topbar-desktop-btn" onClick={() => setDrawerTab("audit")}>Audit</Button></Tooltip>
-            <Tooltip content="Memory"><Button size="small" variant="transparent" className="kami-topbar-desktop-btn" onClick={() => setDrawerTab("memory")}>Memory</Button></Tooltip>
-            <Tooltip content="Skills"><Button size="small" variant="transparent" className="kami-topbar-desktop-btn" onClick={() => setDrawerTab("skills")}>Skills</Button></Tooltip>
-            <Tooltip content="Cron"><Button size="small" variant="transparent" className="kami-topbar-desktop-btn" onClick={() => setDrawerTab("cron")}>Cron</Button></Tooltip>
-            <Tooltip content="Gateways"><Button size="small" variant="transparent" className="kami-topbar-desktop-btn" onClick={() => setDrawerTab("gateways")}>Gateways</Button></Tooltip>
-            <Tooltip content="Autonomy"><Button size="small" variant="transparent" className="kami-topbar-desktop-btn" onClick={() => setDrawerTab("autonomy")}>Autonomy</Button></Tooltip>
-            <Tooltip content="Evaluations"><Button size="small" variant="transparent" className="kami-topbar-desktop-btn" onClick={() => setDrawerTab("evals")}>Evals</Button></Tooltip>
-            <Tooltip content="Settings"><Button size="small" variant="transparent" className="kami-topbar-desktop-btn" onClick={() => setDrawerTab("settings")}>Settings</Button></Tooltip>
-
-            {/* "More" dropdown on mobile */}
-            {isMobile && (
-              <DropdownMenu>
-                <Tooltip content="More">
-                  <DropdownMenu.Trigger asChild>
-                    <Button size="small" variant="transparent" className="kami-touch-btn">•••</Button>
-                  </DropdownMenu.Trigger>
-                </Tooltip>
-                <DropdownMenu.Content align="end" className="min-w-[160px]">
-                  <DropdownMenu.Item onSelect={() => setDrawerTab("audit")}>Audit Log</DropdownMenu.Item>
-                  <DropdownMenu.Item onSelect={() => setDrawerTab("memory")}>Memory</DropdownMenu.Item>
-                  <DropdownMenu.Item onSelect={() => setDrawerTab("skills")}>Skills</DropdownMenu.Item>
-                  <DropdownMenu.Item onSelect={() => setDrawerTab("cron")}>Cron Jobs</DropdownMenu.Item>
-                  <DropdownMenu.Item onSelect={() => setDrawerTab("gateways")}>Gateways</DropdownMenu.Item>
-                  <DropdownMenu.Item onSelect={() => setDrawerTab("autonomy")}>Autonomy</DropdownMenu.Item>
-                  <DropdownMenu.Item onSelect={() => setDrawerTab("evals")}>Evaluations</DropdownMenu.Item>
-                  <DropdownMenu.Item onSelect={() => setDrawerTab("settings")}>Settings</DropdownMenu.Item>
-                </DropdownMenu.Content>
-              </DropdownMenu>
+            {/* Advanced tools — hidden behind a single gear that expands a
+                horizontal strip. Keeps the topbar minimal for end users while
+                power tools stay one tap away. */}
+            {moreToolsOpen && (
+              <div className="kami-more-strip" role="group" aria-label="Advanced tools">
+                {([
+                  ["audit", "Audit"],
+                  ["memory", "Memory"],
+                  ["skills", "Skills"],
+                  ["cron", "Cron"],
+                  ["gateways", "Gateways"],
+                  ["autonomy", "Autonomy"],
+                  ["evals", "Evals"],
+                  ["settings", "Settings"],
+                ] as [TabId, string][]).map(([tab, label]) => (
+                  <Tooltip key={tab} content={label}>
+                    <Button
+                      size="small"
+                      variant="transparent"
+                      className="kami-touch-btn"
+                      onClick={() => {
+                        setDrawerTab(tab)
+                        setMoreToolsOpen(false)
+                        setMobileMenuOpen(false)
+                      }}
+                    >
+                      {label}
+                    </Button>
+                  </Tooltip>
+                ))}
+              </div>
             )}
+            <Tooltip content={moreToolsOpen ? "Close tools" : "More tools"}>
+              <IconButton
+                size="small"
+                variant="transparent"
+                className="kami-touch-btn"
+                aria-label={moreToolsOpen ? "Close tools" : "More tools"}
+                aria-expanded={moreToolsOpen}
+                onClick={() => setMoreToolsOpen((open) => !open)}
+              >
+                {moreToolsOpen ? <XMark /> : <CogSixTooth />}
+              </IconButton>
+            </Tooltip>
 
             <div className="w-px h-5 bg-ui-border-base mx-1" />
 
@@ -3870,6 +1929,11 @@ const KamiPage = () => {
                       msg={msg}
                       isStreaming={isRunning && i === messages.length - 1 && msg.role === "assistant"}
                       onQuickAction={runQuickAction}
+                      drafts={drafts}
+                      onSaveDraft={saveDraft}
+                      onExecuteDraft={executeDraft}
+                      onDismissDraft={dismissDraft}
+                      onDecideApproval={decideApproval}
                     />
                   ))}
                   <div ref={messagesEndRef} className="h-0" />
@@ -4014,25 +2078,6 @@ const KamiPage = () => {
             </div>
           </div>
 
-          {activeDraft ? (
-            <DraftPanel
-              draft={activeDraft}
-              onClose={() => setActiveDraft(null)}
-              onSave={saveDraft}
-              onExecute={executeDraft}
-              onDismiss={dismissDraft}
-            />
-          ) : activeCommand ? (
-            <UiCommandPanel
-              command={activeCommand}
-              onClose={() => setActiveCommand(null)}
-            />
-          ) : (
-            <ArtifactPanel
-              report={activeReport}
-              onClose={() => setActiveReport(null)}
-            />
-          )}
         </div>
 
         {/* Admin Drawer */}

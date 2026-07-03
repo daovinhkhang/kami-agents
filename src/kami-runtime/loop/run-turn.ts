@@ -715,7 +715,35 @@ export async function* runTurn(
 
         if (call.name === "finish") {
           completed = true
-          yield { type: "done", text: String(dispatched.result ?? "") }
+          const finishText = String(dispatched.result ?? "")
+          // The finish answer must survive as a real assistant message, not
+          // only as this tool result. Otherwise on reload it renders inside a
+          // collapsed tool card (role:tool bubbles render as null) and the
+          // user sees tool UI but no answer. Stream + persist it as assistant.
+          if (finishText) {
+            yield { type: "text_delta", delta: finishText }
+            await persistMessage(
+              ctx,
+              {
+                role: "assistant",
+                content: finishText,
+                contentParts: [{ type: "text" as const, text: finishText }],
+              },
+              { artifact_id: emittedArtifactId ?? null }
+            )
+          }
+
+          const actions = buildQuickActions({
+            sessionId: ctx.sessionId,
+            artifactId: emittedArtifactId,
+            userMessage: input.message,
+            results: turnToolResults,
+          })
+          if (actions.length) {
+            yield { type: "quick_actions", actions }
+          }
+
+          yield { type: "done", text: finishText }
           return
         }
       }
