@@ -226,7 +226,7 @@ export const registerRenderArtifactTool = () => {
       "'replace' to replace all sections, or 'update_section' to update one section. " +
       "Available section types: kpi, table, chart, text, order_card, product_card, customer_card, action_list, comparison. " +
       "Use real data from your tool calls — never invent numbers. " +
-      "Keep the chat response concise; the artifact panel will display the detailed report.",
+      "Keep the chat response concise; the inline artifact card will display the detailed report. Do not describe it as a right panel or side panel.",
     risk: "safe",
     schema: {
       type: "object",
@@ -238,7 +238,7 @@ export const registerRenderArtifactTool = () => {
         },
         title: {
           type: "string",
-          description: "Artifact title shown in the panel header",
+          description: "Artifact title shown in the artifact card header",
         },
         date_range: {
           type: "object",

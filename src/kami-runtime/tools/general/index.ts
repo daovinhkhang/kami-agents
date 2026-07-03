@@ -261,7 +261,7 @@ export const registerGeneralTools = () => {
     name: "ui_command",
     toolset: "general",
     description:
-      "Send a structured UI command to the KAMI cockpit. Use this to open the report panel, draft panel, admin drawer, focus a commerce record, highlight an issue, or request user confirmation. This only controls the interface; it does not mutate commerce data.",
+      "Send a structured UI command to the KAMI cockpit. Use this to open or focus report/draft cards, the admin drawer, commerce records, highlighted issues, or user confirmations. This only controls the interface; it does not mutate commerce data. Do not describe UI targets as a right panel or side panel.",
     risk: "safe",
     schema: objectSchema(
       {
@@ -364,7 +364,7 @@ export const registerGeneralTools = () => {
     name: "create_commerce_draft",
     toolset: "general",
     description:
-      "Create a draft-first commerce action for the user to review in the side panel before execution. Use this before mutating products, orders, customers, promotions, inventory, shipping setup, schedules, or report templates unless the user explicitly asks for immediate execution. The draft stores target_tool and args; the UI will let the user edit and execute the real tool.",
+      "Create a draft-first commerce action for the user to review in an inline draft card before execution. Use this before mutating products, orders, customers, promotions, inventory, shipping setup, schedules, or report templates unless the user explicitly asks for immediate execution. The draft stores target_tool and args; the UI will let the user edit and execute the real tool. Do not tell the user to use a right panel or side panel.",
     risk: "safe",
     schema: objectSchema(
       {

@@ -5,9 +5,9 @@ export const BUILT_IN_REPORT_TEMPLATES: ReportTemplate[] = [
     id: "commerce-dashboard",
     name: "commerce-dashboard",
     title: "Commerce Intelligence Dashboard",
-    description: "One panel for sales, catalog, customers, inventory, fulfillment risks, and next-best actions.",
+    description: "One inline report card for sales, catalog, customers, inventory, fulfillment risks, and next-best actions.",
     prompt:
-      "Create a commerce intelligence dashboard. Use commerce_dashboard with days=30 and low_stock_threshold=5. Keep the chat answer short and open the report panel.",
+      "Create a commerce intelligence dashboard. Use commerce_dashboard with days=30 and low_stock_threshold=5. Keep the chat answer short and render the report card inline.",
     required_tools: ["commerce_dashboard"],
     category: "operations",
     schedule_presets: [
