@@ -10,7 +10,7 @@ export const KamiLogo = ({ className = "size-6" }: { className?: string }) => (
   <img
     src={KAMI_ICON_SRC}
     alt="KAMI"
-    className={`${className} shrink-0 rounded-full object-cover`}
+    className={`${className} shrink-0 rounded-xl object-cover`}
     loading="eager"
   />
 )

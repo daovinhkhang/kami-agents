@@ -23,7 +23,7 @@ const AskKamiWidget = (props: any) => {
         <img
           src={KAMI_ICON_SRC}
           alt="KAMI"
-          className="size-9 shrink-0 rounded-full object-cover"
+          className="size-9 shrink-0 rounded-xl object-cover"
           loading="eager"
         />
         <div className="min-w-0">
